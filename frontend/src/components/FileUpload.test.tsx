@@ -1,16 +1,17 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../i18n/LangContext";
+import type * as api from "../services/api";
 import FileUpload from "./FileUpload";
 
-const uploadFile = vi.fn();
-const listExamples = vi.fn();
-const loadExample = vi.fn();
+const uploadFile = vi.fn<typeof api.uploadFile>();
+const listExamples = vi.fn<typeof api.listExamples>();
+const loadExample = vi.fn<typeof api.loadExample>();
 
 vi.mock("../services/api", () => ({
-  uploadFile: (...args: unknown[]) => uploadFile(...args),
-  listExamples: (...args: unknown[]) => listExamples(...args),
-  loadExample: (...args: unknown[]) => loadExample(...args),
+  uploadFile: (...args: Parameters<typeof api.uploadFile>) => uploadFile(...args),
+  listExamples: (...args: Parameters<typeof api.listExamples>) => listExamples(...args),
+  loadExample: (...args: Parameters<typeof api.loadExample>) => loadExample(...args),
 }));
 
 describe("FileUpload", () => {
@@ -21,7 +22,7 @@ describe("FileUpload", () => {
 
   it("uploads a file and reports the stored spectrum", async () => {
     const onUploaded = vi.fn();
-    uploadFile.mockResolvedValue([{ id: "new-1", technique: "NMR", points: 10, summary: "" }]);
+    uploadFile.mockResolvedValue([{ id: "new-1", technique: "NMR", points: 10, name: "", has_result: false, summary: "" }]);
     const { container } = render(
       <LangProvider>
         <FileUpload onUploaded={onUploaded} />
@@ -37,6 +38,8 @@ describe("FileUpload", () => {
       id: "new-1",
       technique: "NMR",
       points: 10,
+      name: "",
+      has_result: false,
       summary: "",
     }));
   });

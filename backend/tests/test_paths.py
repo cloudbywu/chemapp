@@ -47,3 +47,23 @@ def test_store_default_db_is_anchored_not_cwd(
     monkeypatch.chdir(tmp_path)
     store = PersistentStore()
     assert Path(store._db_path) == tmp_path / "backend" / "data" / "chemapp.db"
+
+
+def test_training_lock_path_anchors_to_backend_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Training lock default must follow chemapp_db_path(), not the CWD."""
+
+    from app.api.routes import ml as ml_routes
+
+    monkeypatch.delenv("CHEMAPP_TRAINING_LOCK_PATH", raising=False)
+    monkeypatch.delenv("CHEMAPP_DB_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+    lock = ml_routes._training_lock_path()
+    assert lock.name == "chemapp.db.training.lock"
+    assert lock.parent.name == "data"
+    assert lock.parent.parent.name == "backend"
+    assert tmp_path not in lock.parents
+
+    monkeypatch.setenv("CHEMAPP_TRAINING_LOCK_PATH", str(tmp_path / "custom.lock"))
+    assert ml_routes._training_lock_path() == tmp_path / "custom.lock"

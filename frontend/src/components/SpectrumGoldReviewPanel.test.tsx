@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../i18n/LangContext";
+import type * as api from "../services/api";
 import type {
   SpectrumData,
   SpectrumReviewItem,
@@ -14,14 +15,14 @@ import type {
 import SpectrumGoldReviewPanel from "./SpectrumGoldReviewPanel";
 import { SpectrumReviewQueuePanel } from "./SpectrumGoldReviewPanel";
 
-const getSpectrumReviewCapabilities = vi.fn();
-const getSpectrumReview = vi.fn();
-const getSpectrumReviewAudit = vi.fn();
-const enqueueSpectrumReview = vi.fn();
-const submitSpectrumReview = vi.fn();
-const adjudicateSpectrumReview = vi.fn();
-const downloadGoldSpectrumManifest = vi.fn();
-const listSpectrumReviewQueue = vi.fn();
+const getSpectrumReviewCapabilities = vi.fn<typeof api.getSpectrumReviewCapabilities>();
+const getSpectrumReview = vi.fn<typeof api.getSpectrumReview>();
+const getSpectrumReviewAudit = vi.fn<typeof api.getSpectrumReviewAudit>();
+const enqueueSpectrumReview = vi.fn<typeof api.enqueueSpectrumReview>();
+const submitSpectrumReview = vi.fn<typeof api.submitSpectrumReview>();
+const adjudicateSpectrumReview = vi.fn<typeof api.adjudicateSpectrumReview>();
+const downloadGoldSpectrumManifest = vi.fn<typeof api.downloadGoldSpectrumManifest>();
+const listSpectrumReviewQueue = vi.fn<typeof api.listSpectrumReviewQueue>();
 
 vi.mock("../services/api", () => ({
   ApiError: class ApiError extends Error {
@@ -32,28 +33,30 @@ vi.mock("../services/api", () => ({
       this.status = status;
     }
   },
-  getSpectrumReviewCapabilities: (...args: unknown[]) => (
-    getSpectrumReviewCapabilities(...args)
+  getSpectrumReviewCapabilities: (
+    ...args: Parameters<typeof api.getSpectrumReviewCapabilities>
+  ) => getSpectrumReviewCapabilities(...args),
+  getSpectrumReview: (...args: Parameters<typeof api.getSpectrumReview>) => (
+    getSpectrumReview(...args)
   ),
-  getSpectrumReview: (...args: unknown[]) => getSpectrumReview(...args),
-  getSpectrumReviewAudit: (...args: unknown[]) => (
-    getSpectrumReviewAudit(...args)
-  ),
-  enqueueSpectrumReview: (...args: unknown[]) => (
-    enqueueSpectrumReview(...args)
-  ),
-  submitSpectrumReview: (...args: unknown[]) => (
-    submitSpectrumReview(...args)
-  ),
-  adjudicateSpectrumReview: (...args: unknown[]) => (
-    adjudicateSpectrumReview(...args)
-  ),
-  downloadGoldSpectrumManifest: (...args: unknown[]) => (
-    downloadGoldSpectrumManifest(...args)
-  ),
-  listSpectrumReviewQueue: (...args: unknown[]) => (
-    listSpectrumReviewQueue(...args)
-  ),
+  getSpectrumReviewAudit: (
+    ...args: Parameters<typeof api.getSpectrumReviewAudit>
+  ) => getSpectrumReviewAudit(...args),
+  enqueueSpectrumReview: (
+    ...args: Parameters<typeof api.enqueueSpectrumReview>
+  ) => enqueueSpectrumReview(...args),
+  submitSpectrumReview: (
+    ...args: Parameters<typeof api.submitSpectrumReview>
+  ) => submitSpectrumReview(...args),
+  adjudicateSpectrumReview: (
+    ...args: Parameters<typeof api.adjudicateSpectrumReview>
+  ) => adjudicateSpectrumReview(...args),
+  downloadGoldSpectrumManifest: (
+    ...args: Parameters<typeof api.downloadGoldSpectrumManifest>
+  ) => downloadGoldSpectrumManifest(...args),
+  listSpectrumReviewQueue: (
+    ...args: Parameters<typeof api.listSpectrumReviewQueue>
+  ) => listSpectrumReviewQueue(...args),
 }));
 
 const spectrum: SpectrumData = {

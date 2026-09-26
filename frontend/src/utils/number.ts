@@ -40,6 +40,23 @@ export function text(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
 
+/**
+ * Coerce an unknown value into display text, mirroring 'String(value || "")':
+ * strings pass through, other primitives render in their default string
+ * form, and nullish values become "". Unlike 'text', numeric backend fields
+ * (e.g. version counters) still render, and unlike a raw template literal it
+ * satisfies the type-aware stringification rules.
+ */
+export function displayText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value) return "";
+  // Remaining non-nullish values (numbers, booleans, objects) stringify here
+  // exactly as they would in a template literal; objects intentionally keep
+  // the "[object Object]" fallback this helper mirrors.
+  // eslint-disable-next-line @typescript-eslint/no-base-to-string -- deliberate parity with String(value || "")
+  return String(value);
+}
+
 /** Return the value as a plain record when it is a non-array object, else null. */
 export function record(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === "object" && !Array.isArray(value)

@@ -35,14 +35,14 @@ describe("downloadBlob", () => {
     URL.revokeObjectURL = vi.fn();
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
     const realCreateElement = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation(((
+    vi.spyOn(document, "createElement").mockImplementation((
       tagName: string,
       options?: ElementCreationOptions,
     ) => {
       const element = realCreateElement(tagName, options);
       if (tagName === "a") createdAnchor = element as HTMLAnchorElement;
       return element;
-    }) as typeof document.createElement);
+    });
   });
 
   it("creates an object URL, clicks a temporary anchor, and revokes the URL", () => {

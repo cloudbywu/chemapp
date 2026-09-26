@@ -81,12 +81,12 @@ export default function FileUpload({ onUploaded }: Props) {
       }
     }
     const files = e.dataTransfer.files;
-    if (files.length > 0) uploadMultiple(files);
+    if (files.length > 0) void uploadMultiple(files);
   };
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (files && files.length > 0) uploadMultiple(files);
+    if (files && files.length > 0) void uploadMultiple(files);
   };
 
   const handleLoadExample = async (path: string) => {
@@ -149,7 +149,7 @@ export default function FileUpload({ onUploaded }: Props) {
               <button
                 key={ex.path}
                 type="button"
-                onClick={() => handleLoadExample(ex.path)}
+                onClick={() => void handleLoadExample(ex.path)}
                 disabled={!!loadingExample}
                 title={ex.filename}
               >

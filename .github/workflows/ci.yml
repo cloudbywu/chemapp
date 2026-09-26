@@ -101,14 +101,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      # Advisory note: plotly.js < 4.1.1 pulls maplibre-gl with GHSA-jrc7-96c5-q579
-      # (XSS in map rendering; ChemApp renders no map traces). Upgrade to
-      # plotly.js 4.x is a breaking change tracked separately; audit stays
-      # informational until then.
       - run: npm audit --audit-level=high
-        continue-on-error: true
       - run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true
       - run: npm run lint
       - run: npm run test --if-present
       - run: npm run build

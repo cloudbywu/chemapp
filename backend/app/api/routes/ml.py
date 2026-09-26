@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 from app.ml.predictor import get_model_status
+from app.paths import chemapp_db_path
 
 router = APIRouter(prefix="/api/ml", tags=["ml"])
 logger = logging.getLogger("chemapp.ml")
@@ -38,7 +39,11 @@ def _training_lock_path() -> Path:
     configured = os.environ.get("CHEMAPP_TRAINING_LOCK_PATH")
     if configured:
         return Path(configured)
-    db_path = Path(os.environ.get("CHEMAPP_DB_PATH", str(Path("data") / "chemapp.db")))
+    # Anchor the default to the backend root via chemapp_db_path() so the
+    # lock file lives next to the canonical store regardless of the process
+    # working directory (previously it duplicated the CWD-relative default
+    # and could diverge from the store location).
+    db_path = chemapp_db_path()
     return db_path.with_suffix(db_path.suffix + ".training.lock")
 
 

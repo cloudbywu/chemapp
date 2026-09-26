@@ -1,15 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../i18n/LangContext";
+import type * as api from "../services/api";
 import type { AnalysisResult, SpectrumData } from "../types/spectrum";
 import NMRWorkbench, { optionalFiniteNumber } from "./NMRWorkbench";
 
-const processNmrSpectrum = vi.fn();
-const getNmrSpectrumView = vi.fn();
-const analyzeSpectrum = vi.fn();
+const processNmrSpectrum = vi.fn<typeof api.processNmrSpectrum>();
+const getNmrSpectrumView = vi.fn<typeof api.getNmrSpectrumView>();
+const analyzeSpectrum = vi.fn<typeof api.analyzeSpectrum>();
 
 vi.mock("../services/api", () => ({
-  analyzeSpectrum: (...args: unknown[]) => analyzeSpectrum(...args),
+  analyzeSpectrum: (...args: Parameters<typeof api.analyzeSpectrum>) => analyzeSpectrum(...args),
   ApiError: class ApiError extends Error {
     status: number;
 
@@ -19,8 +20,8 @@ vi.mock("../services/api", () => ({
     }
   },
   downloadMarkdownReport: vi.fn(),
-  getNmrSpectrumView: (...args: unknown[]) => getNmrSpectrumView(...args),
-  processNmrSpectrum: (...args: unknown[]) => processNmrSpectrum(...args),
+  getNmrSpectrumView: (...args: Parameters<typeof api.getNmrSpectrumView>) => getNmrSpectrumView(...args),
+  processNmrSpectrum: (...args: Parameters<typeof api.processNmrSpectrum>) => processNmrSpectrum(...args),
   resetNmrSpectrum: vi.fn(),
   saveManualResult: vi.fn(),
 }));

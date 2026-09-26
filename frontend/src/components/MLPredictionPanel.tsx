@@ -7,7 +7,7 @@ import {
 } from "../services/api";
 import type { AnalysisResult, Peak, SpectrumListItem } from "../types/spectrum";
 import { useLang } from "../i18n/LangContext";
-import { finiteNumber, record } from "../utils/number";
+import { displayText, finiteNumber, record } from "../utils/number";
 
 interface Candidate {
   rank: number;
@@ -67,8 +67,8 @@ function parseForwardEvidence(raw: unknown): ForwardEvidence | undefined {
     return [{ atomIndex, shiftPpm }];
   });
   return {
-    status: String(value.status || ""),
-    reasonCode: String(value.reason_code || ""),
+    status: displayText(value.status),
+    reasonCode: displayText(value.reason_code),
     relativeFitRank: finiteNumber(value.relative_fit_rank),
     maePpm: finiteNumber(value.mae_ppm),
     rmsePpm: finiteNumber(value.rmse_ppm),
@@ -83,16 +83,16 @@ function parseCandidate(raw: Record<string, unknown>, index: number): Candidate 
   const numericScore = scoreValue == null ? null : Number(scoreValue);
   return {
     rank: Number(raw.rank || index + 1),
-    compoundName: String(raw.compound_name || raw.name || raw.smiles || "?"),
-    smiles: String(raw.smiles || ""),
+    compoundName: displayText(raw.compound_name || raw.name || raw.smiles || "?"),
+    smiles: displayText(raw.smiles),
     rankingScore: numericScore != null && Number.isFinite(numericScore) ? numericScore : null,
-    molecularFormula: String(raw.molecular_formula || raw.formula || ""),
+    molecularFormula: displayText(raw.molecular_formula || raw.formula),
     molecularWeight: raw.molecular_weight == null ? null : Number(raw.molecular_weight),
-    source: String(raw.source || ""),
-    sourceId: String(raw.source_id || raw.candidate_id || ""),
+    source: displayText(raw.source),
+    sourceId: displayText(raw.source_id || raw.candidate_id),
     matched13c: Number(raw.matched_13c || 0),
     matched1h: Number(raw.matched_1h || 0),
-    evidenceLevel: String(raw.evidence_level || ""),
+    evidenceLevel: displayText(raw.evidence_level),
     scoreBreakdown: record(raw.score_breakdown) ?? undefined,
     forwardEvidence: parseForwardEvidence(raw.forward_evidence),
   };
@@ -430,10 +430,10 @@ export default function MLPredictionPanel({
               <summary>{t.prediction.pipelineStages}</summary>
               <ol>
                 {response.pipeline?.stages?.map((stage, index) => (
-                  <li key={`${String(stage.stage || "stage")}-${index}`}>
-                    <strong>{String(stage.stage || "—")}</strong>
-                    <span>{String(stage.status || "—")}</span>
-                    {stage.reason_code ? <small>{String(stage.reason_code)}</small> : null}
+                  <li key={`${displayText(stage.stage) || "stage"}-${index}`}>
+                    <strong>{displayText(stage.stage) || "—"}</strong>
+                    <span>{displayText(stage.status) || "—"}</span>
+                    {stage.reason_code ? <small>{displayText(stage.reason_code)}</small> : null}
                   </li>
                 ))}
               </ol>

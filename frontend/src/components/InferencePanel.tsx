@@ -170,37 +170,37 @@ export default function InferencePanel({ spectra, onDataChanged }: Props) {
       )}
 
       <div className="action-bar">
-        <button onClick={handleRun} disabled={running || selected.size < 1}>
+        <button onClick={() => void handleRun()} disabled={running || selected.size < 1}>
           {running ? t.inference.running : t.inference.run}
         </button>
-        <button onClick={handleBatchAnalyze} disabled={batching || selected.size < 1} className="secondary-btn">
+        <button onClick={() => void handleBatchAnalyze()} disabled={batching || selected.size < 1} className="secondary-btn">
           {batching ? t.inference.batchRunning : t.inference.batchAnalyze}
         </button>
-        <button onClick={handleReport} disabled={running || selected.size < 1} className="secondary-btn">
+        <button onClick={() => void handleReport()} disabled={running || selected.size < 1} className="secondary-btn">
           {t.inference.exportMarkdown}
         </button>
-        <button onClick={handleHtmlReport} disabled={running || selected.size < 1} className="secondary-btn">
+        <button onClick={() => void handleHtmlReport()} disabled={running || selected.size < 1} className="secondary-btn">
           {t.inference.exportHtml}
         </button>
-        <button onClick={handleDocxReport} disabled={running || selected.size < 1} className="secondary-btn">
+        <button onClick={() => void handleDocxReport()} disabled={running || selected.size < 1} className="secondary-btn">
           {t.inference.exportWord}
         </button>
-        <button onClick={handleBatchExport} disabled={running || selected.size < 1} className="secondary-btn">
+        <button onClick={() => void handleBatchExport()} disabled={running || selected.size < 1} className="secondary-btn">
           {t.inference.exportBundle}
         </button>
-        <button onClick={handleWorkbench} disabled={running || selected.size < 1} className="secondary-btn">
+        <button onClick={() => void handleWorkbench()} disabled={running || selected.size < 1} className="secondary-btn">
           {t.inference.batchWorkbench}
         </button>
-        <button onClick={handleQualitySummary} disabled={running || selected.size < 1} className="secondary-btn">
+        <button onClick={() => void handleQualitySummary()} disabled={running || selected.size < 1} className="secondary-btn">
           {t.inference.qualityOverview}
         </button>
         {canCompareHplc && (
-          <button onClick={handleHplcCompare} disabled={running} className="secondary-btn">
+          <button onClick={() => void handleHplcCompare()} disabled={running} className="secondary-btn">
             {t.inference.hplcMatch}
           </button>
         )}
         {canCompareHplc && (
-          <button onClick={handleHplcCsv} disabled={running} className="secondary-btn">
+          <button onClick={() => void handleHplcCsv()} disabled={running} className="secondary-btn">
             {t.inference.hplcCsv}
           </button>
         )}

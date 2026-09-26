@@ -2,13 +2,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LangProvider } from "../i18n/LangContext";
+import type * as api from "../services/api";
 import type { AnalysisResult } from "../types/spectrum";
 import HPLCPanel from "./HPLCPanel";
 
-const analyzeSpectrum = vi.fn();
+const analyzeSpectrum = vi.fn<typeof api.analyzeSpectrum>();
 
 vi.mock("../services/api", () => ({
-  analyzeSpectrum: (...args: unknown[]) => analyzeSpectrum(...args),
+  analyzeSpectrum: (...args: Parameters<typeof api.analyzeSpectrum>) => analyzeSpectrum(...args),
   ApiError: class ApiError extends Error {
     status: number;
 

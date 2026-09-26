@@ -2,20 +2,22 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import type * as api from "./services/api";
+import type { SpectrumData } from "./types/spectrum";
 import { LangProvider } from "./i18n/LangContext";
 
-const listSpectra = vi.fn();
-const getSpectrum = vi.fn();
-const getResult = vi.fn();
-const analyzeSpectrum = vi.fn();
-const deleteSpectrum = vi.fn();
+const listSpectra = vi.fn<typeof api.listSpectra>();
+const getSpectrum = vi.fn<typeof api.getSpectrum>();
+const getResult = vi.fn<typeof api.getResult>();
+const analyzeSpectrum = vi.fn<typeof api.analyzeSpectrum>();
+const deleteSpectrum = vi.fn<typeof api.deleteSpectrum>();
 
 vi.mock("./services/api", () => ({
-  listSpectra: (...args: unknown[]) => listSpectra(...args),
-  getSpectrum: (...args: unknown[]) => getSpectrum(...args),
-  getResult: (...args: unknown[]) => getResult(...args),
-  analyzeSpectrum: (...args: unknown[]) => analyzeSpectrum(...args),
-  deleteSpectrum: (...args: unknown[]) => deleteSpectrum(...args),
+  listSpectra: (...args: Parameters<typeof api.listSpectra>) => listSpectra(...args),
+  getSpectrum: (...args: Parameters<typeof api.getSpectrum>) => getSpectrum(...args),
+  getResult: (...args: Parameters<typeof api.getResult>) => getResult(...args),
+  analyzeSpectrum: (...args: Parameters<typeof api.analyzeSpectrum>) => analyzeSpectrum(...args),
+  deleteSpectrum: (...args: Parameters<typeof api.deleteSpectrum>) => deleteSpectrum(...args),
   downloadMarkdownReport: vi.fn(),
   downloadSpectrumCsv: vi.fn(),
   listExamples: vi.fn().mockResolvedValue([]),
@@ -139,9 +141,9 @@ describe("spectrum selection", () => {
   });
 
   it("does not render the newly selected workbench until selection resolves", async () => {
-    let resolveSpectrum!: (value: unknown) => void;
+    let resolveSpectrum!: (value: SpectrumData | PromiseLike<SpectrumData>) => void;
     getSpectrum.mockReturnValue(
-      new Promise((resolve) => {
+      new Promise<SpectrumData>((resolve) => {
         resolveSpectrum = resolve;
       }),
     );
@@ -287,13 +289,13 @@ describe("spectrum selection", () => {
         has_result: true, summary: "",
       },
     ]);
-    let resolveFirst!: (value: unknown) => void;
-    let resolveSecond!: (value: unknown) => void;
-    getSpectrum.mockImplementation((id: string) => new Promise((resolve) => {
+    let resolveFirst!: (value: SpectrumData | PromiseLike<SpectrumData>) => void;
+    let resolveSecond!: (value: SpectrumData | PromiseLike<SpectrumData>) => void;
+    getSpectrum.mockImplementation((id: string) => new Promise<SpectrumData>((resolve) => {
       if (id === "spectrum-1") resolveFirst = resolve;
       else resolveSecond = resolve;
     }));
-    getResult.mockImplementation(async (id: string) => ({
+    getResult.mockImplementation((id: string) => Promise.resolve({
       technique: "NMR", result_revision: 2, peaks: [], metrics: {}, summary: id,
     }));
     render(<LangProvider><App /></LangProvider>);

@@ -1,13 +1,14 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../i18n/LangContext";
+import type * as api from "../services/api";
 import type { AnalysisResult } from "../types/spectrum";
 import MLPredictionPanel from "./MLPredictionPanel";
 
-const elucidateStructure = vi.fn();
+const elucidateStructure = vi.fn<typeof api.elucidateStructure>();
 
 vi.mock("../services/api", () => ({
-  elucidateStructure: (...args: unknown[]) => elucidateStructure(...args),
+  elucidateStructure: (...args: Parameters<typeof api.elucidateStructure>) => elucidateStructure(...args),
   elucidateCombined: vi.fn(),
 }));
 

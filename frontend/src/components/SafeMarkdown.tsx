@@ -13,10 +13,11 @@ interface Props {
  */
 export default function SafeMarkdown({ markdown, className = "" }: Props) {
   const safeHtml = useMemo(() => {
+    // async: false pins the return type to string, so no assertion needed.
     const parsed = marked.parse(markdown, {
       breaks: true,
       async: false,
-    }) as string;
+    });
 
     return DOMPurify.sanitize(parsed, {
       USE_PROFILES: { html: true },

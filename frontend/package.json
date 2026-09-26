@@ -18,7 +18,7 @@
     "axios": "^1.18.0",
     "dompurify": "^3.4.13",
     "marked": "^18.0.5",
-    "plotly.js": "^3.7.0",
+    "plotly.js": "^4.1.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "smiles-drawer": "^2.4.1"
@@ -29,7 +29,6 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.12.3",
-    "@types/plotly.js": "^3.0.10",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

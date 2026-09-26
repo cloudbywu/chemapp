@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, integrateRanges, listResultVersions, restoreResultVersion, saveManualResult } from "../services/api";
 import type { AnalysisResult, IntegralsItem, Peak, SpectrumData } from "../types/spectrum";
 import { useLang } from "../i18n/LangContext";
+import { displayText } from "../utils/number";
 import ConfirmDialog from "./ConfirmDialog";
 
 interface Props {
@@ -340,7 +341,7 @@ export default function ManualReviewPanel({
     <div className="manual-panel">
       <div className="manual-head">
         <h3>{t.manual.title}</h3>
-        {Boolean(result.metrics.manual_confirmed) && <span>{t.manual.confirmed} v{String(result.metrics.manual_version || 1)}</span>}
+        {Boolean(result.metrics.manual_confirmed) && <span>{t.manual.confirmed} v{displayText(result.metrics.manual_version) || 1}</span>}
       </div>
 
       <div className="manual-add-row">
@@ -379,7 +380,7 @@ export default function ManualReviewPanel({
         <div className="table-section compact-table">
           <div className="manual-subhead">
             <h4>{t.manual.nmrRanges}</h4>
-            <button type="button" onClick={recalcNmrIntegrals} disabled={saving}>{t.manual.recalculateIntegrals}</button>
+            <button type="button" onClick={() => void recalcNmrIntegrals()} disabled={saving}>{t.manual.recalculateIntegrals}</button>
           </div>
           <table>
             <thead>
@@ -449,7 +450,7 @@ export default function ManualReviewPanel({
                         </select>
                       </td>
                     )}
-                    <td><button type="button" onClick={() => recalcHplcPeak(index)} disabled={saving}>{t.manual.recalculate}</button></td>
+                    <td><button type="button" onClick={() => void recalcHplcPeak(index)} disabled={saving}>{t.manual.recalculate}</button></td>
                     <td>
                       <button
                         type="button"
@@ -468,7 +469,7 @@ export default function ManualReviewPanel({
       )}
 
       <div className="manual-actions">
-        <button type="button" onClick={save} disabled={saving}>{saving ? t.manual.saving : t.manual.save}</button>
+        <button type="button" onClick={() => void save()} disabled={saving}>{saving ? t.manual.saving : t.manual.save}</button>
         {dirty && <span className="dirty-indicator">{t.manual.unsaved}</span>}
         {message && <span role="status" aria-live="polite">{message}</span>}
       </div>
@@ -508,7 +509,7 @@ export default function ManualReviewPanel({
         cancelLabel={t.action.cancel}
         busyLabel={t.manual.saving}
         busy={saving}
-        onConfirm={restoreVersion}
+        onConfirm={() => void restoreVersion()}
         onCancel={() => setRestoreTarget(null)}
       />
     </div>

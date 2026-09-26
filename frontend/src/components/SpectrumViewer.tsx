@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import type PlotlyType from "plotly.js";
+import type { Data as PlotlyData, Layout as PlotlyLayout } from "plotly.js";
 import { useLang } from "../i18n/LangContext";
+import { displayText } from "../utils/number";
 import type { AnalysisResult, ChannelData, SpectrumData } from "../types/spectrum";
 
 export interface IntegrationRegion {
@@ -154,14 +156,14 @@ async function getPlotly(): Promise<typeof PlotlyType> {
     const loaded = module as unknown as { default?: typeof PlotlyType };
     _plotlyModule = loaded.default || (module as unknown as typeof PlotlyType);
   }
-  return _plotlyModule!;
+  return _plotlyModule;
 }
 
 export default function SpectrumViewer({ spectrum, result, integrationSelection, onIntegrationRangeSelected }: Props) {
   const { t } = useLang();
   const containerRef = useRef<HTMLDivElement>(null);
   const xReverse = spectrum.technique === "NMR";
-  const channels = (spectrum.parameters as Record<string, unknown>)?.channels as ChannelData[] | undefined;
+  const channels = spectrum.parameters?.channels as ChannelData[] | undefined;
   const isNmr = spectrum.technique === "NMR" && !(channels && channels.length > 1);
   const displayData = useMemo(() => {
     if (isNmr) return buildNmrDisplay(spectrum);
@@ -182,11 +184,11 @@ export default function SpectrumViewer({ spectrum, result, integrationSelection,
     let cancelled = false;
     let Plotly: typeof PlotlyType | null = null;
 
-    (async () => {
+    void (async () => {
       Plotly = await getPlotly();
       if (cancelled || !containerRef.current) return;
 
-      const traces: Array<Partial<PlotlyType.PlotData>> = [];
+      const traces: Array<Partial<PlotlyData>> = [];
 
       if (channels && channels.length > 1) {
         for (const ch of channels) {
@@ -237,7 +239,7 @@ export default function SpectrumViewer({ spectrum, result, integrationSelection,
       } else if ((result?.peaks && result.peaks.length > 0) || (spectrum.peaks && spectrum.peaks.length > 0)) {
         const sourcePeaks = result?.peaks && result.peaks.length > 0 ? result.peaks : spectrum.peaks;
         const peaks = isNmr && displayData.window
-          ? sourcePeaks.filter((p) => p.position >= displayData.window!.min && p.position <= displayData.window!.max)
+          ? sourcePeaks.filter((p) => p.position >= displayData.window.min && p.position <= displayData.window.max)
           : sourcePeaks;
         const nPeaks = peaks.length;
         const labelPeaks = nPeaks <= 20;
@@ -277,9 +279,9 @@ export default function SpectrumViewer({ spectrum, result, integrationSelection,
 
       const titleText = channels && channels.length > 1
         ? `HPLC — ${channels.map((c) => `${c.name}`).join(" + ")}`
-        : `${spectrum.technique} — ${(spectrum.parameters as Record<string, unknown>)?.nucleus || (spectrum.metadata as Record<string, unknown>)?.name || ""}`;
+        : `${spectrum.technique} — ${displayText(spectrum.parameters?.nucleus) || displayText(spectrum.metadata?.name)}`;
 
-      const layout: Partial<PlotlyType.Layout> = {
+      const layout: Partial<PlotlyLayout> = {
         title: { text: titleText, font: { color: "#cbd5e1", size: 14 } },
         font: { family: "Inter, sans-serif", color: "#cbd5e1" },
         xaxis: {
@@ -361,16 +363,21 @@ export default function SpectrumViewer({ spectrum, result, integrationSelection,
   const resetView = async () => {
     if (!containerRef.current) return;
     const Plotly = await getPlotly();
+    // plotly.js 4 的 relayout 类型只声明 Partial<Layout>，但运行时仍支持
+    // "xaxis.range" 形式的更新键；交叉 Record<string, unknown> 保留该用法。
+    type RelayoutUpdate = Partial<PlotlyLayout> & Record<string, unknown>;
     if (isNmr && displayData.window) {
-      await Plotly.relayout(containerRef.current, {
+      const update: RelayoutUpdate = {
         "xaxis.range": [displayData.window.max, displayData.window.min],
         "yaxis.range": displayData.yRange,
-      });
+      };
+      await Plotly.relayout(containerRef.current, update);
     } else {
-      await Plotly.relayout(containerRef.current, {
+      const update: RelayoutUpdate = {
         "xaxis.autorange": true,
         "yaxis.autorange": true,
-      });
+      };
+      await Plotly.relayout(containerRef.current, update);
     }
   };
 

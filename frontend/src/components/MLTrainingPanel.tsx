@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLang } from "../i18n/LangContext";
 import { getMLStatus } from "../services/api";
-import { record, text } from "../utils/number";
+import { displayText, record, text } from "../utils/number";
 
 export default function MLTrainingPanel() {
   const { t } = useLang();
@@ -82,11 +82,11 @@ export default function MLTrainingPanel() {
         </div>
         <div className="metric">
           <span className="metric-label">{t.training.classes}</span>
-          <span className="metric-value">{String(status.n_classes || "—")}</span>
+          <span className="metric-value">{displayText(status.n_classes) || "—"}</span>
         </div>
         <div className="metric">
           <span className="metric-label">{t.training.device}</span>
-          <span className="metric-value">{String(status.device || "Unknown")}</span>
+          <span className="metric-value">{displayText(status.device) || "Unknown"}</span>
         </div>
         <div className="metric">
           <span className="metric-label">{t.training.trainingStatus}</span>

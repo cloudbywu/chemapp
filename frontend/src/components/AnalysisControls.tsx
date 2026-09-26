@@ -10,6 +10,8 @@ interface Props {
 
 type NumericOptionKey = Exclude<keyof AnalysisOptions, "baseline_correct" | "auto_reference" | "hide_solvent_peaks" | "multiplet_ranges" | "custom_phases" | "integration_events" | "rietveld_enabled">;
 
+type CustomPhase = NonNullable<AnalysisOptions["custom_phases"]>[number];
+
 function updateNumber(value: AnalysisOptions, key: NumericOptionKey, raw: string): AnalysisOptions {
   if (raw.trim() === "") {
     // Clearing the field removes the override instead of writing 0
@@ -136,7 +138,9 @@ export default function AnalysisControls({ technique, value, onChange, disabled 
                     return;
                   }
                   try {
-                    const parsed = JSON.parse(raw);
+                    // Typed at the boundary: the textarea is expected to hold
+                    // either one custom phase or an array of them.
+                    const parsed = JSON.parse(raw) as CustomPhase[] | CustomPhase;
                     onChange({ ...value, custom_phases: Array.isArray(parsed) ? parsed : [parsed] });
                   } catch {
                     onChange(value);

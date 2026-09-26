@@ -17,6 +17,7 @@ import {
 } from "../services/api";
 import type { AnalysisOptions, AnalysisResult, SpectrumData, SpectrumListItem } from "../types/spectrum";
 import { useLang } from "../i18n/LangContext";
+import { displayText } from "../utils/number";
 
 type PlotPickTarget = { mode: "nmr" | "hplc"; index: number; label: string } | null;
 type PlotPickedRange = { mode: "nmr" | "hplc"; index: number; start: number; end: number; nonce: number } | null;
@@ -184,7 +185,7 @@ export default function NMRWorkbench({
         : undefined,
       auto_reference: useAutoReference,
       reference_solvent: useAutoReference
-        ? String(spectrum.metadata?.solvent || spectrum.parameters.solvent || "").trim() || undefined
+        ? displayText(spectrum.metadata?.solvent || spectrum.parameters.solvent).trim() || undefined
         : undefined,
       reference_window_ppm: useAutoReference
         ? processing.reference_window_ppm
@@ -635,7 +636,7 @@ export default function NMRWorkbench({
         </div>
         <div className="workbench-actions">
           <button type="button" onClick={requestAnalysis} disabled={busy}>{busy ? t.workbench.busy : t.workbench.analyze}</button>
-          <button type="button" onClick={exportReport} disabled={!result}>{t.workbench.exportReport}</button>
+          <button type="button" onClick={() => void exportReport()} disabled={!result}>{t.workbench.exportReport}</button>
         </div>
       </div>
 
@@ -910,7 +911,7 @@ export default function NMRWorkbench({
               <div className="processing-history">
                 <h4>{t.workbench.history}</h4>
                 {history.slice(-6).map((item, index) => (
-                  <span key={index}>{String(item.type || "operation")}</span>
+                  <span key={index}>{displayText(item.type) || "operation"}</span>
                 ))}
               </div>
             )}
@@ -955,7 +956,7 @@ export default function NMRWorkbench({
               rows={3}
             />
             <button type="button" className="primary-inline" onClick={applyMultipletRanges} disabled={busy}>{t.workbench.rebuildMultiplets}</button>
-            <button type="button" className="primary-inline" onClick={saveMultipletConfirmation} disabled={busy || !result.multiplets?.length}>{t.workbench.saveMultiplets}</button>
+            <button type="button" className="primary-inline" onClick={() => void saveMultipletConfirmation()} disabled={busy || !result.multiplets?.length}>{t.workbench.saveMultiplets}</button>
           </div>
           <NMRPanel result={result} />
         </>
@@ -967,16 +968,16 @@ export default function NMRWorkbench({
             <h3>{t.workbench.reviewStatus}</h3>
             <p className="summary">
               {result.metrics.manual_confirmed
-                ? t.workbench.reviewSaved.replace("{version}", String(result.metrics.manual_version || 1))
+                ? t.workbench.reviewSaved.replace("{version}", displayText(result.metrics.manual_version) || "1")
                 : t.workbench.reviewNotSaved}
             </p>
-            <button type="button" className="primary-inline" onClick={exportReport}>{t.workbench.exportMarkdown}</button>
+            <button type="button" className="primary-inline" onClick={() => void exportReport()}>{t.workbench.exportMarkdown}</button>
           </section>
           <section className="workbench-section">
             <h3>{t.workbench.structureAssistance}</h3>
             <MLPredictionPanel spectrumId={spectrum.id} hasResult={true} technique={result.technique} result={result}
               nucleus={spectrum.parameters?.nucleus as string || ""} spectra={spectra}
-              solvent={String(spectrum.metadata?.solvent || spectrum.parameters?.solvent || "")} />
+              solvent={displayText(spectrum.metadata?.solvent || spectrum.parameters?.solvent)} />
           </section>
         </div>
       )}
@@ -988,7 +989,7 @@ export default function NMRWorkbench({
         cancelLabel={t.action.cancel}
         busy={busy}
         busyLabel={t.workbench.busy}
-        onConfirm={applyProcessing}
+        onConfirm={() => void applyProcessing()}
         onCancel={() => {
           setConfirmProcessing(false);
           setPreviewSpectrum(null);
@@ -1009,7 +1010,7 @@ export default function NMRWorkbench({
         busy={busy}
         busyLabel={t.workbench.busy}
         danger
-        onConfirm={resetProcessing}
+        onConfirm={() => void resetProcessing()}
         onCancel={() => setConfirmReset(false)}
       />
       <ConfirmDialog

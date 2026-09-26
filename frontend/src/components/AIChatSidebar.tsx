@@ -5,6 +5,7 @@ import { useLang } from "../i18n/LangContext";
 import ConfirmDialog from "./ConfirmDialog";
 import SafeMarkdown from "./SafeMarkdown";
 import { chemAppAuthHeaders } from "../services/authTokens";
+import { displayText } from "../utils/number";
 import {
   downloadExperimentAgentDocx,
   downloadExperimentAgentMarkdown,
@@ -31,7 +32,9 @@ function extractActions(text: string): AIActionRequest[] {
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
     try {
-      const parsed = JSON.parse(match[1].trim());
+      // Model-generated action block; the truthiness gate below is the only
+      // validation, so assert the expected shape at the parse boundary.
+      const parsed = JSON.parse(match[1].trim()) as { name?: string; args?: Record<string, unknown> };
       if (parsed?.name && parsed?.args) actions.push({ name: parsed.name, args: parsed.args });
     } catch {
       // Ignore malformed action suggestions; the model text remains visible.
@@ -57,9 +60,9 @@ export function isDestructiveAIAction(action: AIActionRequest): boolean {
 
 function actionSpectrumId(action: AIActionRequest): string | null {
   const raw = action.args?.spectrum_id;
-  return raw === undefined || raw === null || String(raw).trim() === ""
+  return raw === undefined || raw === null || displayText(raw).trim() === ""
     ? null
-    : String(raw);
+    : displayText(raw);
 }
 
 export async function withExpectedRevision(
@@ -276,7 +279,8 @@ export default function AIChatSidebar({
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           try {
-            const evt = JSON.parse(line.slice(6));
+            // SSE payloads from our own backend: type/content are strings.
+            const evt = JSON.parse(line.slice(6)) as { type?: string; content?: string };
             const previous = streamedRef.current;
             if (evt.type === "reasoning") {
               streamedRef.current = { ...previous, reasoning: `${previous.reasoning}${String(evt.content || "")}` };
@@ -306,7 +310,7 @@ export default function AIChatSidebar({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAsk(); }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleAsk(); }
   };
 
   const handleStop = () => {
@@ -519,8 +523,8 @@ export default function AIChatSidebar({
               {selectedSpectra.map((s) => (
                 <span key={s.id} className="ai-context-tag" style={{ background: TECH_COLORS[s.technique] || "#6b7280" }}>{s.technique}</span>
               ))}
-              <button type="button" className="ai-mini-btn" onClick={handleLoadSuggestions} disabled={actionBusy}>{t.ai.suggestions}</button>
-              <button type="button" className="ai-mini-btn" onClick={handleUndo} disabled={actionBusy}>{t.ai.undo}</button>
+              <button type="button" className="ai-mini-btn" onClick={() => void handleLoadSuggestions()} disabled={actionBusy}>{t.ai.suggestions}</button>
+              <button type="button" className="ai-mini-btn" onClick={() => void handleUndo()} disabled={actionBusy}>{t.ai.undo}</button>
               <button type="button" className="ai-mini-btn" onClick={() => setAgentOpen((v) => !v)} aria-expanded={agentOpen}>{t.ai.reportAgent}</button>
             </div>
           )}
@@ -555,11 +559,11 @@ export default function AIChatSidebar({
                 <span>{t.ai.polish}</span>
               </label>
               <div className="agent-actions">
-                <button type="button" onClick={handleGenerateExperimentReport} disabled={!handout || selectedCount === 0 || agentBusy}>
+                <button type="button" onClick={() => void handleGenerateExperimentReport()} disabled={!handout || selectedCount === 0 || agentBusy}>
                   {agentBusy ? t.ai.generating : t.ai.generatePreview}
                 </button>
-                <button type="button" onClick={handleDownloadExperimentDocx} disabled={!handout || selectedCount === 0 || agentBusy}>{t.ai.exportWord}</button>
-                <button type="button" onClick={handleDownloadExperimentMarkdown} disabled={!handout || selectedCount === 0 || agentBusy}>{t.ai.exportMarkdown}</button>
+                <button type="button" onClick={() => void handleDownloadExperimentDocx()} disabled={!handout || selectedCount === 0 || agentBusy}>{t.ai.exportWord}</button>
+                <button type="button" onClick={() => void handleDownloadExperimentMarkdown()} disabled={!handout || selectedCount === 0 || agentBusy}>{t.ai.exportMarkdown}</button>
               </div>
               {agentReport && (
                 <details className="agent-preview" open>
@@ -581,7 +585,7 @@ export default function AIChatSidebar({
                 <div key={i} className="ai-suggestion-item">
                   <strong>{item.title}</strong>
                   <span>{item.reason}</span>
-                  <button type="button" onClick={() => handlePreviewAction(item.action)} disabled={actionBusy}>{t.ai.preview}</button>
+                  <button type="button" onClick={() => void handlePreviewAction(item.action)} disabled={actionBusy}>{t.ai.preview}</button>
                 </div>
               ))}
             </div>
@@ -619,7 +623,7 @@ export default function AIChatSidebar({
                             key={`${action.name}-${actionIndex}`}
                             type="button"
                             className="ai-action-btn"
-                            onClick={() => handlePreviewAction(action)}
+                            onClick={() => void handlePreviewAction(action)}
                             disabled={loading}
                             title={JSON.stringify(action.args)}
                           >
@@ -648,9 +652,10 @@ export default function AIChatSidebar({
               <button
                 type="button"
                 className="ai-action-btn"
-                onClick={async () => {
-                  const action = preview.action;
-                  if (await handleExecuteAction(action)) setPreview(null);
+                onClick={() => {
+                  void handleExecuteAction(preview.action).then((executed) => {
+                    if (executed) setPreview(null);
+                  });
                 }}
                 disabled={actionBusy}
               >
@@ -669,7 +674,7 @@ export default function AIChatSidebar({
             {loading ? (
               <button type="button" className="ai-stop-btn" onClick={handleStop}>■ {t.ai.stop}</button>
             ) : (
-              <button type="button" className="ai-send-btn" onClick={handleAsk}
+              <button type="button" className="ai-send-btn" onClick={() => void handleAsk()}
                 disabled={!question.trim() || selectedCount === 0}>
                 {t.ai.send}
               </button>

@@ -51,7 +51,7 @@ export default function CompareView({ spectra }: Props) {
             </option>
           ))}
         </select>
-        <button onClick={handleCompare} disabled={comparing || !id1 || !id2}>
+        <button onClick={() => void handleCompare()} disabled={comparing || !id1 || !id2}>
           {comparing ? t.compare.comparing : t.compare.compare}
         </button>
       </div>

@@ -39,7 +39,7 @@ import {
   downloadSpectrumCsv,
 } from "./services/api";
 import type { AnalysisOptions, AnalysisResult, SpectrumData, SpectrumListItem } from "./types/spectrum";
-import { text } from "./utils/number";
+import { displayText, text } from "./utils/number";
 
 type Tab = "spectra" | "review" | "compare" | "inference" | "settings";
 type PlotPickTarget = { mode: "nmr" | "hplc"; index: number; label: string } | null;
@@ -313,7 +313,7 @@ export default function App() {
   const handleDownloadCsv = async () => {
     if (!selectedId || loading || !spectrum || spectrum.id !== selectedId) return;
     try {
-      await downloadSpectrumCsv(selectedId, `${spectrum?.metadata?.name || selectedId}.csv`);
+      await downloadSpectrumCsv(selectedId, `${displayText(spectrum?.metadata?.name) || selectedId}.csv`);
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : t.error.network);
     }
@@ -454,10 +454,10 @@ export default function App() {
                           <button type="button" onClick={handleAnalyze} disabled={analyzing || loading || !spectrum}>
                             {analyzing ? t.action.analyzing : t.action.analyze}
                           </button>
-                          <button type="button" onClick={handleDownloadCsv} disabled={!selectedId || loading || !spectrum} className="secondary-btn">
+                          <button type="button" onClick={() => void handleDownloadCsv()} disabled={!selectedId || loading || !spectrum} className="secondary-btn">
                             {t.action.exportCsv}
                           </button>
-                          <button onClick={handleDownloadReport} disabled={!result || !selectedId || loading || !spectrum} className="secondary-btn">
+                          <button onClick={() => void handleDownloadReport()} disabled={!result || !selectedId || loading || !spectrum} className="secondary-btn">
                             {t.action.report}
                           </button>
                         </div>
@@ -553,7 +553,7 @@ export default function App() {
         busyLabel={t.action.deleting}
         busy={deleting}
         danger
-        onConfirm={confirmDelete}
+        onConfirm={() => void confirmDelete()}
         onCancel={cancelDelete}
       />
       <ConfirmDialog
