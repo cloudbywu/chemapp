@@ -189,6 +189,29 @@ def test_v5_model_artifact_hash_matches_golden():
     assert model["artifact_sha256"] == V5_MODEL_ARTIFACT_SHA256
 
 
+def _assert_deep_approx(actual, expected, tol=1e-9, path="artifact"):
+    """Recursively compare nested JSON-like structures with float tolerance.
+
+    优化器产出的浮点字段在不同平台/BLAS 间可能有末位差异，
+    结构与标量字段仍要求严格相等。
+    """
+
+    if isinstance(expected, dict):
+        assert isinstance(actual, dict), path
+        assert set(actual) == set(expected), path
+        for key in expected:
+            _assert_deep_approx(actual[key], expected[key], tol, f"{path}.{key}")
+    elif isinstance(expected, list):
+        assert isinstance(actual, list), path
+        assert len(actual) == len(expected), path
+        for index, item in enumerate(expected):
+            _assert_deep_approx(actual[index], item, tol, f"{path}[{index}]")
+    elif isinstance(expected, float):
+        assert actual == pytest.approx(expected, rel=0, abs=tol), path
+    else:
+        assert actual == expected, path
+
+
 def test_calibration_v4_sigmoid_artifact_matches_golden():
     artifact = calibration_v4.fit_calibrator(
         [0.1, 0.4, 0.35, 0.8, 0.9, 0.55, 0.2, 0.7],
@@ -196,7 +219,7 @@ def test_calibration_v4_sigmoid_artifact_matches_golden():
         method="regularized_sigmoid",
         regularization_c=1.0,
     )
-    assert artifact == CAL4_SIGMOID_ARTIFACT
+    _assert_deep_approx(artifact, CAL4_SIGMOID_ARTIFACT)
 
 
 def test_artifact_with_hash_is_single_source():
@@ -244,15 +267,16 @@ def test_ridge_newton_golden():
     intercept, coefficients, converged = fit_weighted_ridge_logistic_newton(
         x, y, weights, 0.01
     )
-    assert intercept == NEWTON_INTERCEPT
-    assert coefficients.tolist() == NEWTON_COEFFICIENTS
+    # 跨平台数值差异在 1 ulp 量级，用极严容差锁定 golden 值。
+    assert intercept == pytest.approx(NEWTON_INTERCEPT, rel=0, abs=1e-12)
+    assert coefficients.tolist() == pytest.approx(NEWTON_COEFFICIENTS, rel=0, abs=1e-12)
     assert converged is NEWTON_CONVERGED
     # The hybrid module keeps its frozen public entry point.
     hybrid_intercept, hybrid_coefficients, hybrid_converged = (
         hybrid_v1.fit_ridge_logistic(x, y, weights, 0.01)
     )
-    assert hybrid_intercept == NEWTON_INTERCEPT
-    assert hybrid_coefficients.tolist() == NEWTON_COEFFICIENTS
+    assert hybrid_intercept == pytest.approx(NEWTON_INTERCEPT, rel=0, abs=1e-12)
+    assert hybrid_coefficients.tolist() == pytest.approx(NEWTON_COEFFICIENTS, rel=0, abs=1e-12)
     assert hybrid_converged is NEWTON_CONVERGED
 
 

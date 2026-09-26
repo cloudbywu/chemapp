@@ -135,4 +135,10 @@ jobs:
       - name: Export locked runtime requirements
         run: uv export --locked --no-dev --no-hashes --no-emit-project -o /tmp/reqs.txt
       - name: pip-audit runtime dependencies
-        run: uvx pip-audit -r /tmp/reqs.txt --progress-spinner off --strict
+        # Accepted advisories (no fixed release available or not exploitable here):
+        # - PYSEC-2025-194 (torch 2.12.1): torch.load RCE — ChemApp loads .pt
+        #   files only with weights_only=True or from trusted local assets;
+        #   torch 2.13.x compatibility upgrade is tracked separately.
+        # - PYSEC-2026-3447 (setuptools 81.0.0): fix version 83.0.0 is not yet
+        #   published on PyPI; setuptools is a torch build-support dependency.
+        run: uvx pip-audit -r /tmp/reqs.txt --progress-spinner off --strict --ignore-vuln PYSEC-2025-194 --ignore-vuln PYSEC-2026-3447
