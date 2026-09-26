@@ -218,14 +218,16 @@ def test_ridge_lbfgs_golden():
     intercept, coefficients = fit_weighted_ridge_logistic_lbfgs(
         matrix, labels, weights, 0.1
     )
-    assert intercept == LBFGS_INTERCEPT
-    assert coefficients.tolist() == LBFGS_COEFFICIENTS
+    # L-BFGS 结果在不同平台/BLAS 间可能有末位差异（1 ulp 量级），
+    # 用极严容差而非逐位相等来锁定 golden 值。
+    assert intercept == pytest.approx(LBFGS_INTERCEPT, rel=0, abs=1e-12)
+    assert coefficients.tolist() == pytest.approx(LBFGS_COEFFICIENTS, rel=0, abs=1e-12)
     # The frozen v5 wrapper maps core failures onto its own error types.
     v5_intercept, v5_coefficients = calibration_v5._fit_ridge(
         matrix, labels, weights, 0.1
     )
-    assert v5_intercept == LBFGS_INTERCEPT
-    assert v5_coefficients.tolist() == LBFGS_COEFFICIENTS
+    assert v5_intercept == pytest.approx(LBFGS_INTERCEPT, rel=0, abs=1e-12)
+    assert v5_coefficients.tolist() == pytest.approx(LBFGS_COEFFICIENTS, rel=0, abs=1e-12)
     with pytest.raises(RidgeLambdaError):
         fit_weighted_ridge_logistic_lbfgs(matrix, labels, weights, -1.0)
     with pytest.raises(calibration_v5.NMRCalibrationV5Error) as excinfo:
