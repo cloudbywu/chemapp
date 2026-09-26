@@ -1,0 +1,97 @@
+{
+  "schema_version": "chemapp.dp5q-quantile-golden.v1",
+  "source": {
+    "repository_commit": "b79968cf63cb282e8871d5595ea6cef5b4dc0d49",
+    "quantile_archive_sha256": "4a0a760343a4f7cdfdb33e65a0ca684ae2b0bad7e61551f64120934c61fb8ec4",
+    "preprocessor_sha256": "6d143a468595797a05434a32da76cdcf57cb8b0cc929bfe27181acc297fde1b0",
+    "upstream_source_bundle_sha256": "1859d45b52b7b8aa158acad849a543edfe6b89151ffa4d3d5948b8700687a7c5",
+    "quantile_sidecar_code_sha256": "b0750eade1cc2e075d9b4b1cf85c36997f976ba5b212a1b1b0acb431c050cde4",
+    "mean_contract_code_sha256": "1956be6f6755dd2bf8336f229117c4d0e06481aff6be70e4b885f4aea093191e",
+    "quantile_adapter_code_sha256": "3e729c4c51d07cbf34f598e0d45403f5b3d71c67cc6be9a672dc02b4a95903bf",
+    "runtime_pin_code_sha256": "7d522846eac9fbff5e874a2f3b6e9322740947dc87a63f1c54797f07a75ee27f",
+    "python_version": "3.11.15",
+    "tensorflow_version": "2.14.0",
+    "keras_version": "2.14.0",
+    "numpy_version": "1.26.4",
+    "pandas_version": "2.2.3",
+    "rdkit_version": "2026.03.4",
+    "scikit_learn_version": "1.3.2",
+    "scipy_version": "1.11.4",
+    "tqdm_version": "4.67.3"
+  },
+  "candidate": {
+    "candidate_id": "ethanol",
+    "smiles": "CCO",
+    "formula": "C2H6O",
+    "canonical_smiles": "CCO",
+    "conformer_count": 1,
+    "conformer_populations": [
+      1.0
+    ]
+  },
+  "atoms": [
+    {
+      "atom_index": 0,
+      "q01_ppm": 17.639678955078125,
+      "q50_ppm": 21.791091918945312,
+      "q99_ppm": 26.862701416015625,
+      "conformer_mu_ppm": [
+        21.714463593875298
+      ],
+      "conformer_sigma_ppm": [
+        1.7070601134702401
+      ],
+      "conformer_quantile_crossing_counts": [
+        15
+      ],
+      "conformer_max_quantile_crossing_ppm": [
+        0.07459259033203125
+      ]
+    },
+    {
+      "atom_index": 1,
+      "q01_ppm": 56.05901336669922,
+      "q50_ppm": 60.09409713745117,
+      "q99_ppm": 64.82926940917969,
+      "conformer_mu_ppm": [
+        60.04620285617935
+      ],
+      "conformer_sigma_ppm": [
+        1.5777496993846885
+      ],
+      "conformer_quantile_crossing_counts": [
+        10
+      ],
+      "conformer_max_quantile_crossing_ppm": [
+        0.033847808837890625
+      ]
+    }
+  ],
+  "assigned_case": {
+    "assigned_shifts_ppm": {
+      "0": 21.0,
+      "1": 60.0
+    },
+    "expected_atom_scores": {
+      "0": 0.6755563494187538,
+      "1": 0.9766380704028617
+    },
+    "expected_dp5q_method_score": 0.8122657826968663,
+    "score_semantics": "dp5q_assigned_13c_quantile_equation_parity_v1",
+    "official_equation_parity": true,
+    "official_assignment_semantics": true,
+    "official_workflow_parity": false,
+    "conformer_protocol": "chemapp.dp5q-conformer.v2",
+    "calibrated_probability": false
+  },
+  "tolerances": {
+    "quantile_ppm_absolute": 1e-05,
+    "normal_parameter_absolute": 1e-08,
+    "score_absolute": 1e-12
+  },
+  "notes": [
+    "Generated from the exact pinned archive with the frozen ChemApp conformer protocol.",
+    "The released model has small quantile crossings; raw values are retained and reported rather than sorted.",
+    "DP5q method scores are not represented as calibrated structure-correctness probabilities."
+  ]
+}

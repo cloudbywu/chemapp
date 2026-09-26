@@ -1,0 +1,111 @@
+ChemApp third-party data notice
+
+Project software license status
+--------------------------------
+
+ChemApp is licensed under the MIT License (see the root `LICENSE` file;
+SPDX: MIT, OSI-approved).  Public distribution of a build that relies on
+nmrshiftdb2 remains blocked until the remaining release checks described in
+THIRD_PARTY_DATA.md are complete.
+
+nmrshiftdb2
+-----------
+
+Contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is made available here under the nmrshiftdb2 Database License.
+
+Official license URI:
+https://nmrshiftdb.nmr.uni-koeln.de/nmrshiftdbhtml/nmrshiftdb2datalicense.txt
+
+The license applies independently to database copies, derivative databases,
+and qualifying produced works. Individual database contents may be subject to
+rights not granted by the database license. See THIRD_PARTY_DATA.md and the
+machine-readable inventory at docs/data-governance-manifest.json.
+
+External proof-of-concept smoke data
+------------------------------------
+
+The optional six-sample external smoke set is:
+
+Henzelin, Kenan; Risse, Lucas; Patiny, Luc (2025), "Proof-of-Concept
+Dataset of Chemical Structures with NMR, IR and MS Spectra", Zenodo,
+https://doi.org/10.5281/zenodo.16881130, CC0-1.0.
+
+It is used only as a proof-of-concept interoperability smoke set. Six samples
+are not sufficient for a headline model-accuracy or generalization claim.
+
+NMRexp human-reviewed data
+--------------------------
+
+The optional human-reviewed peak-annotation pool is:
+
+Wang, Jun-Jie; Zhu, Rong (2025), "NMRexp: A database of 3.37 million
+experimental NMR spectra", Zenodo,
+https://doi.org/10.5281/zenodo.17296666, CC BY 4.0.
+
+License:
+https://creativecommons.org/licenses/by/4.0/legalcode
+
+Associated publication:
+https://doi.org/10.1038/s41597-025-06245-5
+
+ChemApp selects only six fixed *_checked.csv files. Derived records preserve
+their source DOI and this attribution. See THIRD_PARTY_DATA.md and
+docs/independent-nmr-sources-v1.json.
+
+NMR-Solver manually curated paired-spectrum benchmark
+-----------------------------------------------------
+
+The optional v4 research benchmark is:
+
+Jin, Yongqi et al. (2025), "NMR-Solver: Automated Molecular Structure
+Elucidation via Large-Scale Spectra Matching and Physics-Guided Fragment
+Optimization", Zenodo,
+https://doi.org/10.5281/zenodo.16952024, CC BY 4.0.
+
+License:
+https://creativecommons.org/licenses/by/4.0/legalcode
+
+Associated publication:
+https://doi.org/10.1038/s41467-026-71315-0
+
+ChemApp reads only the fixed data/experiment/test.txt member. The upstream
+collection is described as manually curated, but it has no per-row reviewer,
+review timestamp, or source-document mapping and is not represented as
+ChemApp double-reviewed data. Derived redistributions must retain their
+ATTRIBUTION.json. See THIRD_PARTY_DATA.md and
+docs/nmrsolver-reviewed-source-v1.json.
+
+nmrglue 0.11
+------------
+
+The NMR JCAMP-DX interoperability path uses nmrglue 0.11:
+https://www.nmrglue.com/
+
+Copyright (c) 2010-2015 Jonathan J. Helmus
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+a. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+b. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+c. Neither the name of the author nor the names of contributors may be used
+   to endorse or promote products derived from this software without specific
+   prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.

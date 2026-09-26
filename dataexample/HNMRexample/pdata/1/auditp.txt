@@ -1,0 +1,54 @@
+##TITLE= Audit trail, TopSpin 4.4.0
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH & Co. KG
+##OWNER= root
+$$ D:/nmrdata/data/teaching/nmr/260609-LYJ-1/1/pdata/1/auditp.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2026-06-09T08:31:23.286+0000>,<CZC24397WX\root>,<CZC24397WX>,<go4>,<TopSpin 4.4.0>,
+      <acquisition in progress>)
+$$ D:/nmrdata/data/teaching/nmr/260609-LYJ-1/1/audita.txt
+(   2,<2026-06-09T08:32:55.137+0000>,<CZC24397WX\root>,<CZC24397WX>,<go4>,<TopSpin 4.4.0>,
+      <created by zg on 'Avance' (CZC24397WX) by user 'CZC24397WX\root'
+       on data set with UUID '98fd236c-63dd-11f1-bbaf-0030d62e2a3b'
+       started at 2026-06-09 08:31:23.285 +0000, POWCHK enabled, PULCHK disabled,
+       completed at 2026-06-09 08:32:55.136 +0000
+       configuration hash MD5:
+       49 72 CF 87 E9 4C 5C BE 08 C8 80 EE F9 BF EA 82
+       double data hash MD5: 64K
+       4C 8A 92 12 B4 C2 B7 6B 6A 13 F8 F6 2D DF 44 DC>)
+(   3,<2026-06-09T16:31:28.008+0800>,<root>,<CZC24397WX>,<xwish3>,<TopSpin 4.4.0>,
+      <ICON-NMR User ID: teaching
+       double data hash MD5: 64K
+       4C 8A 92 12 B4 C2 B7 6B 6A 13 F8 F6 2D DF 44 DC>)
+(   4,<2026-06-09T16:31:28.883+0800>,<root/teaching>,<CZC24397WX>,<proc1d>,<TopSpin 4.4.0>,
+      <Start of raw data processing
+       ef LB = 0.3 FT_mod = 6 PKNL = 1 SI = 64K 
+       data hash MD5: 64K
+       9B EF D7 F0 CD 70 CB 10 DE 84 97 62 4A 08 B8 06>)
+$$ D:/nmrdata/data/teaching/nmr/260609-LYJ-1/1/pdata/1/auditp.txt
+(   5,<2026-06-09T16:31:29.742+0800>,<root/teaching>,<CZC24397WX>,<proc1d>,<TopSpin 4.4.0>,
+      <apk0 
+       data hash MD5: 64K
+       0C 21 CB B4 58 C8 C1 B7 65 F3 76 6C 3F 1D 10 16>)
+$$ D:/nmrdata/data/teaching/nmr/260609-LYJ-1/1//pdata/1/auditp.txt
+(   6,<2026-06-09T16:31:29.804+0800>,<root/teaching>,<CZC24397WX>,<sref>,<TopSpin 4.4.0>,
+      <sref
+       data hash MD5: 64K
+       0C 21 CB B4 58 C8 C1 B7 65 F3 76 6C 3F 1D 10 16>)
+$$ D:/nmrdata/data/teaching/nmr/260609-LYJ-1/1/pdata/1/auditp.txt
+(   7,<2026-06-09T16:31:29.836+0800>,<root/teaching>,<CZC24397WX>,<proc1d>,<TopSpin 4.4.0>,
+      <abs ABSG = 5 
+       data hash MD5: 64K
+       AF 4C EC CA DB EE 15 F8 12 E2 88 4E 93 4F F0 F1>)
+(   8,<2026-06-09T16:31:29.898+0800>,<root/teaching>,<CZC24397WX>,<peak>,<TopSpin 4.4.0>,
+      <1D Peak picking
+       data hash MD5: 64K
+       AF 4C EC CA DB EE 15 F8 12 E2 88 4E 93 4F F0 F1>)
+(   9,<2026-06-09T16:31:30.023+0800>,<root/teaching>,<CZC24397WX>,<xwish3>,<TopSpin 4.4.0>,
+      <ICON-NMR User ID: teaching
+       data hash MD5: 64K
+       AF 4C EC CA DB EE 15 F8 12 E2 88 4E 93 4F F0 F1>)
+##END=
+
+$$ hash MD5
+$$ 19 B8 84 BC F2 15 77 15 6E A3 42 0D 39 1C FC 56

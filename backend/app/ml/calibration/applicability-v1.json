@@ -1,0 +1,15 @@
+{
+  "schema_version": "chemapp.nmr.calibration-applicability.v1",
+  "status": "blocked_no_eligible_calibration_data",
+  "model_sha256": null,
+  "calibrator_sha256": null,
+  "feature_schema": null,
+  "generator_version": null,
+  "provider_ids": [],
+  "nucleus": null,
+  "solvent": null,
+  "pool_size": null,
+  "qc_passed": false,
+  "protocol_version": null,
+  "reason": "No production-distribution calibration pool with at least 100 Top-1 error groups and a complete prior-influence index has been frozen."
+}

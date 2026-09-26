@@ -1,0 +1,23 @@
+{
+  "schema_version": "chemapp.nmr.calibrator-v1",
+  "feature_names": [
+    "pool_log_odds",
+    "normalized_pool_entropy",
+    "log1p_top1_mae_ppm",
+    "log1p_top1_max_abs_error_ppm",
+    "top1_bidirectional_coverage"
+  ],
+  "selected_lambda": 0.1,
+  "intercept": 5.243707053423414,
+  "coefficients": [
+    4.287875742833472,
+    2.4260037771998624,
+    -4.004617548575987,
+    0.8714553986052836,
+    2.1396847501958223
+  ],
+  "fit_runs": ["nmr-blind-nmrexp-v3", "nmr-blind-nmrexp-v4"],
+  "fit_rows": 894,
+  "generated_at": "2026-08-07T10:56:22Z",
+  "report": "docs/nmr-blind-calibration-v1.json"
+}

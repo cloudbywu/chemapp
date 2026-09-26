@@ -1,0 +1,73 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      CHEMAPP_ACCESS_TOKEN: ${CHEMAPP_ACCESS_TOKEN:?set CHEMAPP_ACCESS_TOKEN}
+      CHEMAPP_ADMIN_TOKEN: ${CHEMAPP_ADMIN_TOKEN:?set CHEMAPP_ADMIN_TOKEN}
+      CHEMAPP_REVIEWER_TOKENS: ${CHEMAPP_REVIEWER_TOKENS:?set CHEMAPP_REVIEWER_TOKENS}
+      # Review-queue administration: without these the Gold review admin stays
+      # fail-closed (writes rejected) and AI preview signing falls back to a
+      # secret derived from the access/admin tokens. Set explicit values in
+      # production; see .env.example for semantics.
+      CHEMAPP_REVIEW_ADMIN_SUBJECT: ${CHEMAPP_REVIEW_ADMIN_SUBJECT:-curation-admin}
+      CHEMAPP_REVIEW_ALLOWED_LICENSES: ${CHEMAPP_REVIEW_ALLOWED_LICENSES:-CC0-1.0,CC-BY-4.0,CC-BY-SA-4.0}
+      CHEMAPP_AI_PREVIEW_SECRET: ${CHEMAPP_AI_PREVIEW_SECRET:-}
+      CHEMAPP_CORS_ORIGINS: http://localhost:3000
+      CHEMAPP_LOCAL_ACCESS_BYPASS: "0"
+      CHEMAPP_LOCAL_ADMIN_BYPASS: "0"
+      CHEMAPP_CSP5_MODE: "on"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.deepseek.com}
+      OPENAI_MODEL: ${OPENAI_MODEL:-deepseek-v4-pro}
+      CHEMAPP_LLM_ALLOWED_HOSTS: ${CHEMAPP_LLM_ALLOWED_HOSTS:-api.deepseek.com,api.openai.com}
+    volumes:
+      - chemapp-data:/var/lib/chemapp
+      - ./backend/data/nmr_spectral_index.sqlite:/var/lib/chemapp-models/nmr_spectral_index.sqlite:ro
+      - ./backend/data/nmr_spectral_index_v2.sqlite:/var/lib/chemapp-models/nmr_spectral_index_v2.sqlite:ro
+      - ./backend/data/nmr_joint_ranker.joblib:/var/lib/chemapp-models/nmr_joint_ranker.joblib:ro
+      - ./backend/app/ml/pretrained/t5_nmr:/var/lib/chemapp-models/t5_nmr:ro
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - /app/.venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/ready', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
+volumes:
+  chemapp-data:

@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Fileset IdentifierAlgorithm="" Identifier="" xmlns="urn:schemas-agilent-com:Fileset">
+  <Files>
+    <File Path="-S-003.acaml" IdentifierAlgorithm="MD5" Identifier="d021e0591f97ad5f742db81dbcb91306">
+      <Property Name="appVersion" Value="ACQ-2026-0413-0817-48369" />
+    </File>
+    <File Path="仪器分析实验.amx" IdentifierAlgorithm="MD5" Identifier="e82030fb8c4249ead9b48fd7c66ca5c1">
+      <Property Name="appVersion" Value="2023-0308-0129-45958" />
+    </File>
+    <File Path="数据分析.pmx" IdentifierAlgorithm="MD5" Identifier="45ef213c44b04b182a9500633e16cafb">
+      <Property Name="appVersion" Value="2026-0413-0824-18243" />
+    </File>
+    <File Path="-S-003.dx" IdentifierAlgorithm="MD5" Identifier="a37155decce283f3ba4e94a520a5ade2">
+      <Property Name="appVersion" Value="ACQ-2026-0413-0817-48369" />
+    </File>
+    <File Path="-S-003.rx" IdentifierAlgorithm="MD5" Identifier="82292927bd0ad8585d591c25a5c35f60">
+      <Property Name="appVersion" Value="ACQ-2026-0413-0817-48369" />
+    </File>
+    <File Path="-S-003_1.docx" IdentifierAlgorithm="MD5" Identifier="605ef27992864d89fac24b3637ab72fa">
+      <Property Name="appVersion" Value="2026-0413-0824-24638" />
+    </File>
+    <File Path="-S-003_1.pdf" IdentifierAlgorithm="MD5" Identifier="bd3bb4e17d123a7f490563466d7e7c9e">
+      <Property Name="appVersion" Value="2026-0413-0824-36662" />
+    </File>
+    <File Path="Short_Area.rdl" IdentifierAlgorithm="MD5" Identifier="ac9eddfcc585e20eb6f5a111095572b6">
+      <Property Name="appVersion" Value="2026-0413-0824-36706" />
+    </File>
+  </Files>
+</Fileset>

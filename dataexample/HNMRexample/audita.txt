@@ -1,0 +1,26 @@
+##TITLE= Audit trail, TopSpin 4.4.0
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH & Co. KG
+##OWNER= root
+$$ /root/.topspin-BladeEpu/local_acqu/260609-LYJ-1/1/audita.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2026-06-09T08:31:23.286+0000>,<CZC24397WX\root>,<CZC24397WX>,<go4>,<TopSpin 4.4.0>,
+      <acquisition in progress>)
+$$ D:/nmrdata/data/teaching/nmr/260609-LYJ-1/1/audita.txt
+(   2,<2026-06-09T08:32:55.137+0000>,<CZC24397WX\root>,<CZC24397WX>,<go4>,<TopSpin 4.4.0>,
+      <created by zg on 'Avance' (CZC24397WX) by user 'CZC24397WX\root'
+       on data set with UUID '98fd236c-63dd-11f1-bbaf-0030d62e2a3b'
+       started at 2026-06-09 08:31:23.285 +0000, POWCHK enabled, PULCHK disabled,
+       completed at 2026-06-09 08:32:55.136 +0000
+       configuration hash MD5:
+       49 72 CF 87 E9 4C 5C BE 08 C8 80 EE F9 BF EA 82
+       double data hash MD5: 64K
+       4C 8A 92 12 B4 C2 B7 6B 6A 13 F8 F6 2D DF 44 DC>)
+(   3,<2026-06-09T16:31:28.008+0800>,<root>,<CZC24397WX>,<xwish3>,<TopSpin 4.4.0>,
+      <ICON-NMR User ID: teaching
+       double data hash MD5: 64K
+       4C 8A 92 12 B4 C2 B7 6B 6A 13 F8 F6 2D DF 44 DC>)
+##END=
+
+$$ hash MD5
+$$ AE 05 2C CC C5 8B C7 FC A6 7B F5 22 BA 1D 9D DB

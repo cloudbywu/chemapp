@@ -1,0 +1,96 @@
+{
+  "schema_version": "chemapp.dp5q-quantile-multiconformer-golden.v1",
+  "source": {
+    "repository_commit": "b79968cf63cb282e8871d5595ea6cef5b4dc0d49",
+    "quantile_archive_sha256": "4a0a760343a4f7cdfdb33e65a0ca684ae2b0bad7e61551f64120934c61fb8ec4",
+    "preprocessor_sha256": "6d143a468595797a05434a32da76cdcf57cb8b0cc929bfe27181acc297fde1b0",
+    "upstream_source_bundle_sha256": "1859d45b52b7b8aa158acad849a543edfe6b89151ffa4d3d5948b8700687a7c5",
+    "quantile_sidecar_code_sha256": "b0750eade1cc2e075d9b4b1cf85c36997f976ba5b212a1b1b0acb431c050cde4",
+    "mean_contract_code_sha256": "1956be6f6755dd2bf8336f229117c4d0e06481aff6be70e4b885f4aea093191e",
+    "quantile_adapter_code_sha256": "3e729c4c51d07cbf34f598e0d45403f5b3d71c67cc6be9a672dc02b4a95903bf",
+    "runtime_pin_code_sha256": "7d522846eac9fbff5e874a2f3b6e9322740947dc87a63f1c54797f07a75ee27f",
+    "python_version": "3.11.15",
+    "tensorflow_version": "2.14.0",
+    "keras_version": "2.14.0",
+    "numpy_version": "1.26.4",
+    "pandas_version": "2.2.3",
+    "rdkit_version": "2026.03.4",
+    "scikit_learn_version": "1.3.2",
+    "scipy_version": "1.11.4",
+    "tqdm_version": "4.67.3"
+  },
+  "candidate": {
+    "candidate_id": "butane",
+    "smiles": "CCCC",
+    "formula": "C4H10",
+    "canonical_smiles": "CCCC",
+    "conformer_count": 2,
+    "conformer_populations": [
+      0.7892179095234142,
+      0.21078209047658572
+    ],
+    "atom_indices": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "prediction_payload": {
+    "canonical_json": "sort_keys=true,separators=comma-colon,ensure_ascii=true,allow_nan=false",
+    "fields": [
+      "conformer_populations",
+      "atom_predictions"
+    ],
+    "sha256": "011a3b366220cea410e8de785337cd2c3e2ec1c03836e83908d63811492e3661",
+    "boltzmann_weighted_quantile_values_covered": 396,
+    "fitted_parameter_values_covered": 16,
+    "raw_conformer_quantiles": {
+      "digest_contract": "sha256-sorted-population-tensor-records-float64-le-v1",
+      "shape": [
+        2,
+        4,
+        99
+      ],
+      "atom_indices": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "values_covered_by_digest": 792,
+      "sha256": "f25940b68abfc5ed4153f422014c01aa457db9d73193bbd8b1da5a26498a88fb"
+    }
+  },
+  "assigned_case": {
+    "assigned_shifts_ppm": {
+      "0": 13.5,
+      "1": 23.0,
+      "2": 23.0,
+      "3": 13.5
+    },
+    "expected_atom_scores": {
+      "0": 0.5951185371899362,
+      "1": 0.10788393143760378,
+      "2": 0.10789095375209201,
+      "3": 0.5950994745331526
+    },
+    "expected_dp5q_method_score": 0.2533880258867355,
+    "score_semantics": "dp5q_assigned_13c_quantile_equation_parity_v1",
+    "official_equation_parity": true,
+    "official_assignment_semantics": true,
+    "official_workflow_parity": false,
+    "conformer_protocol": "chemapp.dp5q-conformer.v2",
+    "calibrated_probability": false
+  },
+  "tolerances": {
+    "population_absolute": 1e-12,
+    "score_absolute": 1e-12
+  },
+  "notes": [
+    "The payload hash covers all 99 Boltzmann-weighted quantiles for four atoms plus every per-conformer fit and crossing diagnostic.",
+    "A separate canonical little-endian float64 digest covers all 792 raw per-conformer quantile values and binds tensor shape and atom-axis order.",
+    "The two unequal conformer populations detect order changes in Boltzmann aggregation.",
+    "This score is a pinned upstream-method consistency score, not a calibrated structure-correctness probability."
+  ]
+}

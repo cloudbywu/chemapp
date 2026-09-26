@@ -1,0 +1,876 @@
+<?xml version="1.0"?>
+<ACAML xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" schemaversion="2.1.30.999" xmlns="urn:schemas-agilent-com:acaml21">
+  <Checksum Algorithm="MD5">
+    <Value>ZWE57KCWvNWZ9IyG9EaZyw==</Value>
+  </Checksum>
+  <MigrationHistory>
+    <MigrationStep>
+      <FromNamespace>urn:schemas-agilent-com:acaml21</FromNamespace>
+      <ToNamespace>urn:schemas-agilent-com:acaml21v2.1.30.999</ToNamespace>
+      <Date>2026-04-13T16:35:53.6125187+08:00</Date>
+      <Application>Agilent.Acaml.Core, Assembly Version: 1.0.0.0, File Version: 2.1.46.1</Application>
+    </MigrationStep>
+  </MigrationHistory>
+  <Doc>
+    <DocID>99256731-d2ea-4359-b459-1859748dfff0</DocID>
+    <DocInfo>
+      <Description>-S-005</Description>
+      <CreatedByUser>SYSTEM (SYSTEM)</CreatedByUser>
+      <CreatedByApplication>
+        <AgilentApp>
+          <Name>IntelligentDataAnalysis</Name>
+          <Version>版本 2.7 - 软件版本 2.207.0.801</Version>
+        </AgilentApp>
+      </CreatedByApplication>
+      <CreationDate>2026-04-13T08:35:53.6125187Z</CreationDate>
+      <ClientName>CHINAMI-RS0964O</ClientName>
+      <CustomField Name="CreatedByUserDisplayName">
+        <Value>SYSTEM (SYSTEM)</Value>
+      </CustomField>
+      <CustomField Name="OriginalApplicationName">
+        <Value>IntelligentDataAnalysis</Value>
+      </CustomField>
+      <CustomField Name="InjectionMetaDataItems">
+        <Xml>
+          <ArrayOfInjectionMetaData xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="">
+            <InjectionMetaData AcqMethodName="仪器分析实验" DaMethodName="数据分析" InjectionAcqDateTime="2026-04-13T08:36:07.997Z" InjectionId="030d706f-89a2-439e-9e0e-f5c1922b5cf3" InjectorPosition="Undefined" InstrumentName="LC-1260" LastModifiedDateTime="2026-04-13T16:42:13.2473924+08:00" BracketingType="Undefined" RawDataFileName="-S-005.dx" SampleDescription="" SampleName="" SampleSetupId="018d5fdc-5610-4efe-a9eb-89745f649cd6" SampleType="Sample" SequenceName="SingleSample" VialNumber="">
+              <Dil>1;1;1;1;1</Dil>
+              <LimsIds key="" />
+              <LimsIds key="" />
+              <LimsIds key="" />
+              <Locked>false</Locked>
+              <Mult>1;1;1;1;1</Mult>
+              <ReplicateNumber val="1" />
+              <SampleAmount val="0" unit="" />
+              <SampleInjectionsCount val="1" />
+              <SampleOrderNumber val="1" />
+            </InjectionMetaData>
+          </ArrayOfInjectionMetaData>
+        </Xml>
+      </CustomField>
+    </DocInfo>
+    <Content>
+      <Resources>
+        <Instrument id="0708c87d-ca9e-4d4c-9568-e7f8a4c9a9a1" ver="0">
+          <Info>
+            <CreatedDate>0001-01-01T00:00:00</CreatedDate>
+            <LastModifiedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </LastModifiedBy>
+            <LastModifiedDate>2026-04-13T16:42:12.0407445+08:00</LastModifiedDate>
+            <AuditTrail />
+          </Info>
+          <ComplexCustomFields>
+            <CustomField Name="IsCombined">
+              <Value>False</Value>
+            </CustomField>
+          </ComplexCustomFields>
+          <Name>LC-1260</Name>
+          <Technique>LiquidChromatography</Technique>
+          <Module id="7afe7620-ec32-4385-a6a3-2b0bfa068682">
+            <Name>二元泵</Name>
+            <Manufacturer>Agilent</Manufacturer>
+            <Type>Pump</Type>
+            <PartNo>G7112B</PartNo>
+            <SerialNo>DEAE801705</SerialNo>
+            <FirmwareRevision>D.07.36 [0001]</FirmwareRevision>
+            <DriverVersion>3.4.66</DriverVersion>
+            <ConnectionInfo>192.168.254.11</ConnectionInfo>
+            <AdditionalInformation />
+            <Instance>1</Instance>
+          </Module>
+          <Module id="89be2069-8f37-4feb-9895-17e866adf7f9">
+            <Name>柱温箱</Name>
+            <Manufacturer>Agilent</Manufacturer>
+            <Type>ColumnCompartment</Type>
+            <PartNo>G7116A</PartNo>
+            <SerialNo>DEAED36590</SerialNo>
+            <FirmwareRevision>D.07.36 [0001]</FirmwareRevision>
+            <DriverVersion>3.4.66</DriverVersion>
+            <ConnectionInfo>192.168.254.11</ConnectionInfo>
+            <AdditionalInformation />
+            <Instance>1</Instance>
+          </Module>
+          <Module id="1f38e6db-e70e-422e-9e62-c21eee1fa920">
+            <Name>DAD</Name>
+            <Manufacturer>Agilent</Manufacturer>
+            <Type>Detector</Type>
+            <PartNo>G7117C</PartNo>
+            <SerialNo>DEAEK12108</SerialNo>
+            <FirmwareRevision>D.07.35 [0002]</FirmwareRevision>
+            <DriverVersion>3.4.66</DriverVersion>
+            <ConnectionInfo>192.168.254.11</ConnectionInfo>
+            <AdditionalInformation />
+            <Instance>1</Instance>
+          </Module>
+          <SeparationMedium_ID id="79bc293c-5fbb-43c7-bd06-4cb34eae6c03" ver="0" />
+        </Instrument>
+        <SeparationMedium id="79bc293c-5fbb-43c7-bd06-4cb34eae6c03" ver="0">
+          <Info>
+            <CreatedDate>0001-01-01T00:00:00</CreatedDate>
+            <LastModifiedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </LastModifiedBy>
+            <LastModifiedDate>2026-04-13T16:42:12.0407445+08:00</LastModifiedDate>
+            <AuditTrail />
+          </Info>
+          <ComplexCustomFields />
+          <Type>
+            <Column>
+              <BubbleCap>false</BubbleCap>
+              <ColumnId>:</ColumnId>
+            </Column>
+          </Type>
+        </SeparationMedium>
+      </Resources>
+      <Method id="6f1990d4-32b3-4fe0-8aeb-8c5d3bd9aec1" ver="0">
+        <Info>
+          <CreatedBy>
+            <Username>SYSTEM (SYSTEM)</Username>
+          </CreatedBy>
+          <CreatedDate>2023-03-08T09:29:45.95817+08:00</CreatedDate>
+          <LastModifiedBy>
+            <Username>SYSTEM (SYSTEM)</Username>
+          </LastModifiedBy>
+          <LastModifiedDate>2026-04-13T16:17:48.135337+08:00</LastModifiedDate>
+          <AuditTrail />
+        </Info>
+        <ComplexCustomFields />
+        <BinaryData>
+          <DataItem>
+            <Name>仪器分析实验.amx</Name>
+            <Data>
+              <DataFileReference>
+                <Path>仪器分析实验.amx</Path>
+              </DataFileReference>
+            </Data>
+          </DataItem>
+        </BinaryData>
+        <Name>仪器分析实验</Name>
+        <Description />
+        <OriginalVersion>2023-0308-0129-45958</OriginalVersion>
+      </Method>
+      <SampleContexts>
+        <Setup id="cf39b391-61db-41b4-a2f4-574d3ad5ddb8" ver="0">
+          <Info>
+            <CreatedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </CreatedBy>
+            <CreatedDate>2026-04-13T16:35:53.6125187+08:00</CreatedDate>
+            <LastModifiedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </LastModifiedBy>
+            <LastModifiedDate>2026-04-13T16:42:19.0041407+08:00</LastModifiedDate>
+          </Info>
+          <ComplexCustomFields />
+          <IdentParam>
+            <Name>SingleSample</Name>
+            <ContextInfo>
+              <ContentType>SingleSample</ContentType>
+              <SourceType>Undefined</SourceType>
+              <ContentIntegrity>Complete</ContentIntegrity>
+            </ContextInfo>
+          </IdentParam>
+          <AcqParam>
+            <Instrument_ID id="0708c87d-ca9e-4d4c-9568-e7f8a4c9a9a1" ver="0" />
+          </AcqParam>
+          <DAParam>
+            <BracketingMode>None</BracketingMode>
+          </DAParam>
+          <SampleSetup_ID id="018d5fdc-5610-4efe-a9eb-89745f649cd6" ver="0" />
+          <PackagingMode>CompliantSingleSample</PackagingMode>
+        </Setup>
+        <MeasData id="832235f8-2883-4828-b4c0-36c92a4136b2" ver="0">
+          <Info>
+            <CreatedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </CreatedBy>
+            <CreatedDate>2026-04-13T16:35:53.6125187+08:00</CreatedDate>
+            <LastModifiedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </LastModifiedBy>
+            <LastModifiedDate>2026-04-13T16:42:19.0041407+08:00</LastModifiedDate>
+          </Info>
+          <ComplexCustomFields />
+          <SampleSetupContext_ID id="cf39b391-61db-41b4-a2f4-574d3ad5ddb8" ver="0" />
+          <IdentParam>
+            <Name>SingleSample</Name>
+            <ContextInfo>
+              <ContentType>Undefined</ContentType>
+              <SourceType>Undefined</SourceType>
+              <ContentIntegrity>Undefined</ContentIntegrity>
+            </ContextInfo>
+          </IdentParam>
+          <AcqParam>
+            <Instrument_ID id="0708c87d-ca9e-4d4c-9568-e7f8a4c9a9a1" ver="0" />
+          </AcqParam>
+          <SampleMeasData_ID id="9f8f1a6a-c833-485c-b77d-cd35f4b778e1" ver="0" />
+          <DiagnosticData />
+        </MeasData>
+      </SampleContexts>
+      <Samples>
+        <Setup id="018d5fdc-5610-4efe-a9eb-89745f649cd6" ver="0">
+          <Info>
+            <CreatedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </CreatedBy>
+            <CreatedDate>2026-04-13T16:42:12.0247805+08:00</CreatedDate>
+            <LastModifiedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </LastModifiedBy>
+            <LastModifiedDate>2026-04-13T16:42:12.0247805+08:00</LastModifiedDate>
+            <AuditTrail />
+          </Info>
+          <ComplexCustomFields>
+            <CustomField Name="CompoundCustomFields" />
+          </ComplexCustomFields>
+          <IdentParam>
+            <Name />
+            <Description />
+            <LimsID key="" />
+            <LimsID key="" />
+            <LimsID key="" />
+            <ProjectID>仪器分析实验</ProjectID>
+          </IdentParam>
+          <AcqParam>
+            <OrderNo val="1" />
+            <VialNumber />
+            <NumberOfInjections val="1" />
+            <InjectionVolume val="0" unit="" />
+            <InjectorPosition>Undefined</InjectorPosition>
+            <InjectionSourceInfo>External</InjectionSourceInfo>
+          </AcqParam>
+          <DAParam>
+            <Type>Sample</Type>
+            <SampleAmount val="0" unit="" />
+            <DilutionFactor>
+              <CorrectionFactor val="1" />
+            </DilutionFactor>
+            <DilutionFactor>
+              <CorrectionFactor val="1" />
+            </DilutionFactor>
+            <DilutionFactor>
+              <CorrectionFactor val="1" />
+            </DilutionFactor>
+            <DilutionFactor>
+              <CorrectionFactor val="1" />
+            </DilutionFactor>
+            <DilutionFactor>
+              <CorrectionFactor val="1" />
+            </DilutionFactor>
+            <Multiplier>
+              <CorrectionFactor val="1" />
+            </Multiplier>
+            <Multiplier>
+              <CorrectionFactor val="1" />
+            </Multiplier>
+            <Multiplier>
+              <CorrectionFactor val="1" />
+            </Multiplier>
+            <Multiplier>
+              <CorrectionFactor val="1" />
+            </Multiplier>
+            <Multiplier>
+              <CorrectionFactor val="1" />
+            </Multiplier>
+          </DAParam>
+        </Setup>
+        <MeasData id="9f8f1a6a-c833-485c-b77d-cd35f4b778e1" ver="0">
+          <Info>
+            <CreatedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </CreatedBy>
+            <CreatedDate>2026-04-13T16:42:12.0247805+08:00</CreatedDate>
+            <LastModifiedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </LastModifiedBy>
+            <LastModifiedDate>2026-04-13T16:42:12.0247805+08:00</LastModifiedDate>
+            <AuditTrail />
+          </Info>
+          <ComplexCustomFields />
+          <IdentParam>
+            <Name />
+            <Description />
+            <LimsID key="" />
+            <LimsID key="" />
+            <LimsID key="" />
+            <ProjectID>仪器分析实验</ProjectID>
+          </IdentParam>
+          <AcqParam>
+            <VialNumber />
+            <NumberOfInjections val="1" />
+            <InjectionVolume val="0" unit="" />
+            <InjectorPosition>Undefined</InjectorPosition>
+            <InjectionSourceInfo>External</InjectionSourceInfo>
+          </AcqParam>
+          <SampleSetup_ID id="018d5fdc-5610-4efe-a9eb-89745f649cd6" ver="0" />
+          <InjectionMeasData_ID id="030d706f-89a2-439e-9e0e-f5c1922b5cf3" ver="0" />
+          <DiagnosticData />
+        </MeasData>
+      </Samples>
+      <Injections>
+        <MeasData id="030d706f-89a2-439e-9e0e-f5c1922b5cf3" ver="0">
+          <Info>
+            <CreatedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </CreatedBy>
+            <CreatedDate>2026-04-13T08:36:07.997Z</CreatedDate>
+            <LastModifiedBy>
+              <Username>SYSTEM (SYSTEM)</Username>
+            </LastModifiedBy>
+            <LastModifiedDate>2026-04-13T16:42:13.2473924+08:00</LastModifiedDate>
+          </Info>
+          <ComplexCustomFields />
+          <BinaryData>
+            <DataItem>
+              <Name>-S-005.dx</Name>
+              <OriginalFilePath>D:\CDSProjects\学生实验\仪器分析实验\Results\0413\-S-005.sirslt</OriginalFilePath>
+              <Data>
+                <DataFileReference>
+                  <Path>-S-005.dx</Path>
+                </DataFileReference>
+              </Data>
+            </DataItem>
+          </BinaryData>
+          <AcqParam>
+            <Method_ID id="6f1990d4-32b3-4fe0-8aeb-8c5d3bd9aec1" ver="0" />
+            <OrderNo val="1" />
+          </AcqParam>
+          <AcquitionStatus>
+            <Status>Completed</Status>
+            <Message>进样：1 采集已完成</Message>
+          </AcquitionStatus>
+          <Signal id="6e93c37a-cb20-432b-a577-f19853cc6e8a" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2473924+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>DAD1A</Name>
+            <Description>DAD1A,Sig=220,4  Ref=360,100</Description>
+            <Type>Chromatogram</Type>
+            <YAxisScalingFactor val="1" unit="Minutes" />
+            <TraceID>3d9bc1b6-5121-48cc-bcf1-299432323e7e</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>DAD</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>A</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="1f38e6db-e70e-422e-9e62-c21eee1fa920" />
+          </Signal>
+          <Signal id="6fb81d02-b6fe-40d4-a1e4-ff8c39c8a222" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>DAD1I</Name>
+            <Description>DAD1I,DAD: 光谱</Description>
+            <Type>Spectra</Type>
+            <TraceID>c306c006-aaaf-408c-9b4f-fc5e0d832197</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>DAD</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>I</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="1f38e6db-e70e-422e-9e62-c21eee1fa920" />
+          </Signal>
+          <Signal id="0c104044-b945-4ec6-a742-23325ca33a6f" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>PMP1B</Name>
+            <Description>PMP1B,流量</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>95b9994d-375b-4993-b79f-604321ec30dc</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>PMP</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>B</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="7afe7620-ec32-4385-a6a3-2b0bfa068682" />
+          </Signal>
+          <Signal id="44c2581b-80e3-42e5-9a46-4c7e5c43f3bd" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>THM1B</Name>
+            <Description>THM1B,右侧温度</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>69c5f072-1ad7-47a4-81b8-8af51203a3e8</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>THM</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>B</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="89be2069-8f37-4feb-9895-17e866adf7f9" />
+          </Signal>
+          <Signal id="c546341e-eee8-4394-9e38-5c5ad122b5aa" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>PMP1A</Name>
+            <Description>PMP1A,压力</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>aef91323-5914-4101-ac95-5f308d92fa0f</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>PMP</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>A</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="7afe7620-ec32-4385-a6a3-2b0bfa068682" />
+          </Signal>
+          <Signal id="264a4f07-2d41-4127-bd26-1cda1ba24aff" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>DAD1V</Name>
+            <Description>DAD1V,UV 灯阳极电压</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>b61d24e5-afa8-4145-ad00-ec0891b5808b</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>DAD</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>V</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="1f38e6db-e70e-422e-9e62-c21eee1fa920" />
+          </Signal>
+          <Signal id="367c5fd1-30a9-4e63-b0b4-23fe6a374c6d" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>PMP1F</Name>
+            <Description>PMP1F,位置 B 的定义</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>f13aa786-df0d-49c5-984f-ca006aa2953a</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>PMP</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>F</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="7afe7620-ec32-4385-a6a3-2b0bfa068682" />
+          </Signal>
+          <Signal id="f86af116-c3c4-4c82-85e9-96b769ee7917" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>DAD1B</Name>
+            <Description>DAD1B,Sig=254,4  Ref=360,100</Description>
+            <Type>Chromatogram</Type>
+            <YAxisScalingFactor val="1" unit="Minutes" />
+            <TraceID>13ed933c-43eb-4fa7-88fb-7770e85f2fba</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>DAD</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>B</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="1f38e6db-e70e-422e-9e62-c21eee1fa920" />
+          </Signal>
+          <Signal id="d80ff21b-bf93-4966-adab-96c2ae11e40b" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>DAD1U</Name>
+            <Description>DAD1U,光学设备温度</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>2fe43e38-809d-4ec7-bf46-dada35629fee</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>DAD</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>U</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="1f38e6db-e70e-422e-9e62-c21eee1fa920" />
+          </Signal>
+          <Signal id="82c8ee2b-21c3-4b64-8820-19bbab7a3e8d" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>PMP1E</Name>
+            <Description>PMP1E,位置 A 的定义</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>1dd572a1-6ab1-4d5b-a507-6d47fda9118b</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>PMP</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>E</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="7afe7620-ec32-4385-a6a3-2b0bfa068682" />
+          </Signal>
+          <Signal id="64b43dff-58c2-4664-899c-3dd2927fe82b" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>PMP1C</Name>
+            <Description>PMP1C,溶剂比率 A</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>e6e5dd91-b150-4279-b900-fa3f0578ce48</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>PMP</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>C</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="7afe7620-ec32-4385-a6a3-2b0bfa068682" />
+          </Signal>
+          <Signal id="ce95c8c6-6793-492b-aa65-18a7e35c171e" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>DAD1T</Name>
+            <Description>DAD1T,板温度</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>fd5ef6b5-df7f-4bd9-a8f7-9c5860ae54be</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>DAD</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>T</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="1f38e6db-e70e-422e-9e62-c21eee1fa920" />
+          </Signal>
+          <Signal id="c8f24f7f-ac56-4503-ab1f-27ce2b81f179" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>PMP1D</Name>
+            <Description>PMP1D,溶剂比率 B</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>4208f7e8-97a9-4b2d-b379-d5537e7c2b70</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>PMP</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>D</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="7afe7620-ec32-4385-a6a3-2b0bfa068682" />
+          </Signal>
+          <Signal id="767afaea-920b-4281-8c92-9c47e64d076c" ver="0">
+            <Info>
+              <CreatedDate>0001-01-01T00:00:00Z</CreatedDate>
+              <LastModifiedBy>
+                <Username>SYSTEM (SYSTEM)</Username>
+              </LastModifiedBy>
+              <LastModifiedDate>2026-04-13T16:42:13.2635343+08:00</LastModifiedDate>
+            </Info>
+            <ComplexCustomFields />
+            <BinaryData>
+              <DataItem>
+                <Name>-S-005.dx</Name>
+                <OriginalFilePath>-S-005.dx</OriginalFilePath>
+                <Data>
+                  <DataFileReference>
+                    <Path>-S-005.dx</Path>
+                  </DataFileReference>
+                </Data>
+              </DataItem>
+            </BinaryData>
+            <Name>THM1A</Name>
+            <Description>THM1A,左侧温度</Description>
+            <Type>InstrumentCurve</Type>
+            <TraceID>b1e3ea2d-8901-4ea6-87ec-f606933c5e31</TraceID>
+            <UserGenerated>false</UserGenerated>
+            <AutomationGenerated>false</AutomationGenerated>
+            <DetectorName>THM</DetectorName>
+            <DetectorInstance>1</DetectorInstance>
+            <ChannelName>A</ChannelName>
+            <PeakDeletions />
+            <InstrumentModule_ID id="89be2069-8f37-4feb-9895-17e866adf7f9" />
+          </Signal>
+          <InjectionSeparationMedium>
+            <AutoDetect>false</AutoDetect>
+            <Position>Unknown</Position>
+            <InjectionCount val="0" />
+            <UsedForInjection>true</UsedForInjection>
+            <SeparationMedium_ID id="79bc293c-5fbb-43c7-bd06-4cb34eae6c03" ver="0" />
+          </InjectionSeparationMedium>
+          <InjectionVolume val="0" unit="" />
+          <DiagnosticData>
+            <Item Name="ADVANCED_RUN_INFORMATION">
+              <CustomField Name="二元泵 : 1" Description="二元泵">
+                <CustomField Name="RunStart_Pressure_Actual" Description="运行开始 - 压力">
+                  <Value unit="bar">174.68</Value>
+                </CustomField>
+                <CustomField Name="RunStart_Flow_Actual" Description="运行开始 - 流量">
+                  <Value unit="mL/min">1.000</Value>
+                </CustomField>
+                <CustomField Name="RunStop_Pressure_Actual" Description="运行停止 - 压力">
+                  <Value unit="bar">174.94</Value>
+                </CustomField>
+                <CustomField Name="RunStop_Flow_Actual" Description="运行停止 - 流量">
+                  <Value unit="mL/min">1.000</Value>
+                </CustomField>
+              </CustomField>
+              <CustomField Name="柱温箱 : 1" Description="柱温箱">
+                <CustomField Name="RunStart_TemperatureControl_Actual" Description="运行开始 - 左侧温度">
+                  <Value unit="°C">30.0</Value>
+                </CustomField>
+                <CustomField Name="RunStart_TemperatureControl2_Actual" Description="运行开始 - 右侧温度">
+                  <Value unit="°C">30.0</Value>
+                </CustomField>
+                <CustomField Name="RunStop_TemperatureControl_Actual" Description="运行停止 - 左侧温度">
+                  <Value unit="°C">30.0</Value>
+                </CustomField>
+                <CustomField Name="RunStop_TemperatureControl2_Actual" Description="运行停止 - 右侧温度">
+                  <Value unit="°C">30.0</Value>
+                </CustomField>
+              </CustomField>
+              <CustomField Name="DAD : 1" Description="DAD">
+                <CustomField Name="RunStart_UVLamp_OnTime" Description="运行开始 - Dad - UV 灯开始时间">
+                  <Value unit="h">2.38</Value>
+                </CustomField>
+                <CustomField Name="RunStart_UVLamp_BurnTime" Description="运行开始 - Dad - UV 灯点燃时间">
+                  <Value unit="h">721.88</Value>
+                </CustomField>
+                <CustomField Name="RunStart_CellLength" Description="运行开始 - Dad - 流通池长度">
+                  <Value unit="mm">10.0</Value>
+                </CustomField>
+                <CustomField Name="RunStart_UVLamp_ProductNumber" Description="运行开始 - Dad - 灯标记 - 产品编号">
+                  <Value>5190-0917</Value>
+                </CustomField>
+                <CustomField Name="RunStart_UVLamp_SerialNumber" Description="运行开始 - Dad - 灯标记 - 序列号">
+                  <Value>M05777</Value>
+                </CustomField>
+                <CustomField Name="RunStart_CellTag_ProductNumber" Description="运行开始 - Dad - 流通池标记 - 产品编号">
+                  <Value>G4212-60008</Value>
+                </CustomField>
+                <CustomField Name="RunStart_CellTag_SerialNumber" Description="运行开始 - Dad - 流通池标记 - 序列号">
+                  <Value>DECBB60379</Value>
+                </CustomField>
+                <CustomField Name="RunStop_UVLamp_OnTime" Description="运行停止 - Dad - UV 灯开始时间">
+                  <Value unit="h">2.48</Value>
+                </CustomField>
+                <CustomField Name="RunStop_UVLamp_BurnTime" Description="运行停止 - Dad - UV 灯点燃时间">
+                  <Value unit="h">721.98</Value>
+                </CustomField>
+              </CustomField>
+            </Item>
+          </DiagnosticData>
+          <AcquisitionApplication>
+            <AgilentApp>
+              <Name>OpenLabCDS</Name>
+              <Version>2.7 - 软件版本  2.7.0-REL_2.7.2.203</Version>
+            </AgilentApp>
+          </AcquisitionApplication>
+          <AcquisitionSoftware>Agilent OpenLab Acquisition 版本 2.7 - 软件版本  2.7.0-REL_2.7.2.203 </AcquisitionSoftware>
+          <AcquisitionMethodVersion>2023-0308-0129-45958</AcquisitionMethodVersion>
+          <ExternalResultPath>-S-005.rx</ExternalResultPath>
+        </MeasData>
+      </Injections>
+      <Actions />
+    </Content>
+  </Doc>
+</ACAML>

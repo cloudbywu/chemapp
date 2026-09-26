@@ -1,0 +1,26 @@
+{
+  "files": [
+    {
+      "bytes": 18292213,
+      "path": "models/CSP5-13C/best_model.pt",
+      "sha256": "d3123e1a34fa98e1d485ca571d5ac0b403f60eb2ac9d890e3d31357e235e7422"
+    },
+    {
+      "bytes": 18291810,
+      "path": "models/CSP5-1H/best_model.pt",
+      "sha256": "f099f8fff0434edb2b86b437fdf49314ddd700a988c214e73c563572ba17272c"
+    },
+    {
+      "bytes": 18392949,
+      "path": "models/CSP5q-13C/best_model.pt",
+      "sha256": "7664e6ddc1fb5848f14f842a41078df306f6e3b0972b80e134511e0c6033ee78"
+    },
+    {
+      "bytes": 18392546,
+      "path": "models/CSP5q-1H/best_model.pt",
+      "sha256": "ddacc9b98ca71bd55820062f7f272c6ec1319ccfb35851de42f8878a31eed02c"
+    }
+  ],
+  "generated_at": "2026-08-07",
+  "schema_version": "chemapp.csp5.weights-manifest.v1"
+}

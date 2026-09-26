@@ -1,0 +1,169 @@
+/*** ^^A -*-C++-*- **********************************************/
+/*  au_zg           02.11.2020                                  */
+/****************************************************************/
+/*  Short Description :                                         */
+/*  General AU program for data acquisition.                    */
+/****************************************************************/
+/*  Keywords :                                                  */
+/*  zg                                                          */
+/****************************************************************/
+/*  Description/Usage :                                         */
+/*  General AU program for data acquisition.                    */
+/*  First an rga is done, then the acquisition is started.      */
+/*  Options:                                                    */
+/*  bt_calib=1: call bt_calibrate_o1 for O1 calibration         */
+/*  pcal=1:     call pulsecal for P1 calibration                */
+/*  supp_opt=1: set both bt_calib=1 and pcal=1                  */
+/****************************************************************/
+/*  Author(s) :                                                 */
+/*  Name            : Rainer Kerssebaum                         */
+/*  Organisation    : Bruker BioSpin GmbH                       */
+/*  Email           : rainer.kerssebaum@bruker.com              */
+/****************************************************************/
+/*  Name    Date    Modification:                               */
+/*  pdv     901010  created                                     */
+/*  rke     201102  options for o1 calibration and pulsecal for */
+/*                  water suppression                           */
+/****************************************************************/
+/*
+$Id:$
+*/
+
+AUERR = au_zg(curdat);
+QUIT
+
+/*  Define some global constants and variables         */
+#define TLL 1024
+int     debugflag = 0;
+
+/* cmdline parameters */
+int     bt_calib = 0, pcal = 0, supp_opt = 0;
+
+static void evalcmdline(void);
+static int  check_cmd_arg(const char*, char*, char*);
+
+
+int au_zg(const char* curdat)
+{
+float   plw1;
+
+FETCHPAR("PLW 1", &plw1)
+
+evalcmdline();
+if (supp_opt == 1)
+{
+    bt_calib = 1;
+    pcal = 1;
+}
+
+if (bt_calib == 1)
+{
+    if (plw1 == 0)
+    {
+        GETPROSOL
+        ERRORABORT
+        Show_meta(SM_RAWP);
+    }
+
+    XCMD("bt_calibrate_o1")
+    if (debugflag > 1)  Proc_err(ERROPT_AK_OK, "DEBUG au_zg\nO1 by bt_calibrate_o1 done");
+}
+
+if (pcal == 1)
+{
+    XCMD("pulsecal quiet")
+    if (debugflag > 1)  Proc_err(ERROPT_AK_OK, "DEBUG au_zg\npulsecal done");
+}
+
+RGA
+ZG_OVERWRITE
+
+return 0;
+}   //QUIT
+
+
+/* subroutines ****************************************************************/
+
+/* subroutine evalcmdline *****************************************************/
+static void evalcmdline(void)
+{
+int     i;
+char    argname[TLL], argvalue[TLL];
+
+if (i_argc > 2)
+{
+    if (debugflag > 2)
+        Proc_err(ERROPT_AK_OK, "DEBUG sub\n%d arguments", i_argc-2);
+
+    for (i=1; i <= i_argc-2; i++)
+    {
+        if (debugflag > 2)
+            Proc_err(ERROPT_AK_OK, "DEBUG sub\nargument %d: %s", i, i_argv[i+1]);
+
+        if (check_cmd_arg(i_argv[i+1], argname, argvalue) == 0)
+        {
+            if (debugflag > 2)
+                Proc_err(ERROPT_AK_OK,"DEBUG sub\nargname = %s\nvalue = %s", argname, argvalue);
+/*          evaluate param */
+            if (!strcmp(argname, "bt_calib"))
+            {
+                bt_calib=atoi(argvalue);
+                if ((bt_calib < 1) || (bt_calib >1))
+                    bt_calib = 0;
+            }
+
+            else if (!strcmp(argname, "pcal"))
+            {
+                pcal=atoi(argvalue);
+                if ((pcal < 0) || (pcal >1))
+                    pcal = 0;
+            }
+
+            else if (!strcmp(argname, "supp_opt"))
+            {
+                supp_opt=atoi(argvalue);
+                if ((supp_opt < 0) || (supp_opt >1))
+                    supp_opt = 0;
+            }
+
+            else if (!strcmp(argname, "debugflag"))
+            {
+                debugflag=atoi(argvalue);
+                if ((debugflag < 0) || (debugflag >1))
+                    debugflag = 0;
+            }
+
+        }
+    }
+}
+else
+{
+    if (debugflag > 2)
+        Proc_err(ERROPT_AK_OK, "DEBUG sub\nno arguments");
+}
+
+if (debugflag > 3)
+    Proc_err(ERROPT_AK_OK, "DEBUG sub\nevalcmdline done");
+
+} /* end subroutine */
+
+/* subroutine check_cmd_arg ***************************************************/
+static int check_cmd_arg(const char* cpar, char* pname, char* pvalue)
+{
+const char* pch = strchr(cpar, '=');
+
+if (pch == NULL)
+    return -1;
+
+sprintf(pname, "%.*s", (int)(pch - cpar), cpar);
+strcpy(pvalue, pch + 1);
+
+if (strcmp(pvalue, "(null)") == 0)
+    pvalue[0] = 0;
+
+if (debugflag > 2)
+    Proc_err(ERROPT_AK_OK, "DEBUG sub\nparname = %s %lu\nvalue = %s %lu",
+             pname, (unsigned long)strlen(pname),
+             pvalue, (unsigned long)strlen(pvalue));
+return 0;
+} /* end subroutine */

@@ -1,0 +1,21 @@
+{
+  "schema_version": "chemapp.nmr.calibration-policy.v1",
+  "probability_claim_allowed": false,
+  "external_holder_pending": true,
+  "external_acceptance_v7": {
+    "status": "internal_role_separated_rehearsal",
+    "challenge_id": "nmrbc_12ce246c2715dc09ea48ddd75f62cbb7",
+    "top1_rate": 0.85,
+    "attestation": "docs/external-acceptance-v7/attestation-v7.md",
+    "independent_holder": false,
+    "reclassified_at_utc": "2026-08-09T00:00:00Z",
+    "reclassification_reason": "Reviewer and model executor are the same AI operator on one machine; organizational separation is not cryptographic independence."
+  },
+  "validations": {
+    "v5": {"ece": 0.0202, "brier": 0.0122, "n_rows": 500},
+    "v6": {"ece": 0.0252, "brier": 0.0143, "n_rows": 500}
+  },
+  "calibrator_artifact": "calibrator-v1.json",
+  "semantics": "P(Top-1 is exact structure | truth retrieved, pool size >= 2, QC passed, fixed generator and ranker)",
+  "automatic_selection_allowed": false
+}

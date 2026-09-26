@@ -1,0 +1,11 @@
+# Line-ending discipline: frozen research manifests pin SHA-256 of the files
+# below. On Windows (core.autocrlf=true) a plain checkout rewrites LF -> CRLF
+# and silently breaks the fail-closed hash gates. Force LF for all of them.
+backend/pyproject.toml text eol=lf
+backend/uv.lock text eol=lf
+backend/scripts/build_nmr_v8_domains.py text eol=lf
+backend/scripts/inventory_nmrxiv_metadata_v1.py text eol=lf
+backend/scripts/build_nmr_v9_candidate_generation_v3.py text eol=lf
+backend/scripts/dp5q_sidecar.py text eol=lf
+backend/scripts/dp5q_quantile_sidecar.py text eol=lf
+docs/** text eol=lf

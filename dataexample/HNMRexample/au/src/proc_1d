@@ -1,0 +1,101 @@
+/***********************************************-*-C++-*-********/
+/*  proc_1d             10.10.1990                              */
+/****************************************************************/
+/*  Short Description :                                         */
+/*  Processes and plots 1D spectra. Uses 'autoplot' for         */
+/*  plotting.                                                   */
+/****************************************************************/
+/*  Keywords :                                                  */
+/*  1D, autoplot, TopSpin PLOT Editor                           */
+/****************************************************************/
+/*  Description/Usage :                                         */
+/*  Basic processing AU program for 1D spectra, plotting        */
+/*  the acquisition range with TopSpin PLOT Editor.             */
+/*  Performs ef, apk, sref, abs and autoplot.                   */
+/*  If you want to use your individual TopSpin PLOT Editor      */
+/*  layout, you can define it in XWIN-NMR with the command      */
+/*  'layout'. If there is none, the default layout              */
+/*  '1D_X+int.xwp' is used.                                     */
+/*  Peak Picking will be done in the acquisition range          */
+/****************************************************************/
+/*  Author(s) :                                                 */
+/*  Name        : Peter Dvortsak,Sven Cunskis, Sven Augner      */
+/*  Organisation: Bruker BioSpin GmbH                           */
+/*  Email       : nmr-software-support@bruker.de                */
+/****************************************************************/
+/*  Name        Date    Modification:                           */
+/*  pdv         901010  created                                 */
+/*  svcu        010102  use XWIN-PLOT for plotting              */
+/*  svcu        041001  increase print_to_file options          */
+/*  augn        070418  XWP_PP replaced with PP                 */
+/*  rke         140218  apk/apk0 depending on DIGMOD            */
+/****************************************************************/
+/*
+$Id:$
+*/
+
+/*********************************************/
+/* Declare variables */
+int     digmod;
+float   offset;
+double  sf, sw_p, f1p, f2p, f1porig, f2porig;
+char    xwlay[PATH_MAX], portf[PATH_MAX];
+
+portf[0] = 0;
+
+/*********************************************/
+/* processing */
+EF
+ERRORABORT
+FETCHPARS("DIGMOD", &digmod)
+if (digmod == 3)
+    APK0
+else
+    APK
+SREF
+ABS
+
+/*********************************************/
+/* If no TopSpin PLOT Editor layout is defined  */
+/* the default layout will be used  */
+FETCHPAR("LAYOUT",xwlay)
+if (xwlay[0] == 0)
+    STOREPAR("LAYOUT","+/1D_X+int.xwp")
+
+/*********************************************/
+/* store the current plotregion */
+FETCHPAR("F1P",&f1porig)
+FETCHPAR("F2P",&f2porig)
+
+/*********************************************/
+/* define the plotregion as big as */
+/* the complete acquisition region */
+FETCHPARS("OFFSET",&offset)
+FETCHPARS("SW_p",&sw_p)
+FETCHPARS("SF",&sf)
+f1p = offset;
+f2p = f1p - sw_p / sf;
+STOREPAR("F1P",f1p)
+STOREPAR("F2P",f2p)
+
+/*********************************************/
+/* create the pick picking listing for TopSpin PLOT Eitor */
+PP
+
+/*********************************************/
+/* restore the original plotregion */
+STOREPAR("F1P",f1porig)
+STOREPAR("F2P",f2porig)
+
+
+AUTOPLOT
+
+
+/*********************************************/
+/* Adds include file 'printtofile' that manage */
+/* the print to file information    */
+
+#include <inc/printtofile>
+
+
+QUIT
