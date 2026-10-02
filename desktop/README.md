@@ -182,3 +182,15 @@ Primary references: [Electron security](https://www.electronjs.org/docs/latest/t
 [process sandboxing](https://www.electronjs.org/docs/latest/tutorial/sandbox),
 [electron-builder Windows](https://www.electron.build/docs/win/),
 [uv managed Python](https://docs.astral.sh/uv/concepts/python-versions/#managed-and-system-python-installations).
+
+### Official NMR2Struct downloads
+
+Settings → NMR2Struct model weights installs C-only, H-only, or H+C from the
+immutable official MarklandGroup/NMR2Struct source. Progress/cancel/retry are
+available; downloads continue when leaving Settings. Files are size/SHA-256
+verified in a temporary file before atomic replacement and stored in the desktop
+user-data `models/nmr2struct` directory, separate from the read-only application.
+No model files need to be included in release packages. Reopening the app after an
+interrupted download permits retry; installed models are recognized automatically.
+The renderer never fetches third-party weight URLs or receives arbitrary file-write
+access. Existing session-token, origin, CSP, and admin protections remain in force.

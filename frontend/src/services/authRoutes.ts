@@ -16,9 +16,11 @@ const ADMIN_EXACT_POST = new Set([
   "/api/spectra/examples/load",
   "/api/standards",
   "/api/reviews/queue",
+  "/api/ml/nmr2struct/weights/downloads",
 ]);
 
 const ADMIN_RULES: RouteRule[] = [
+  { methods: ["post"], regex: /^\/api\/ml\/nmr2struct\/weights\/downloads\/[^/]+\/cancel$/ },
   { methods: ["delete"], regex: /^\/api\/spectra\/[^/]+$/ },
   { methods: ["get"], regex: /^\/api\/reviews\/gold-manifest$/ },
   { methods: ["get"], regex: /^\/api\/reviews\/[^/]+\/audit$/ },

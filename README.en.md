@@ -92,6 +92,8 @@ Important variables:
 | `CHEMAPP_NMR_INDEX_V2` | Per-spectrum traceable NMR v2 audit index (read-only mount in compose; not yet used directly for production ranking) |
 | `CHEMAPP_NMR_RANKER` | NMR ranker file |
 | `CHEMAPP_T5_MODEL_DIR` | Experimental SMILES generation model directory |
+| `CHEMAPP_NMR_GENERATOR` | Experimental generator selection: `auto`, `nmr2struct`, or `t5` |
+| `CHEMAPP_NMR2STRUCT_VARIANT` | NMR2Struct input/checkpoint selection: `auto` (default), `cnmr_only`, `hnmr_only`, or `multitask` |
 | `CHEMAPP_DP5Q_MODE` | Optional DP5q ¹³C forward diagnostics; accepts only `off` or `shadow` |
 | `CHEMAPP_DP5Q_QUANTILE_MODE` | Administrator read-only diagnostics for the official 99th-percentile model; independent switch, default `off` |
 | `CHEMAPP_DP5Q_PYTHON` / `CHEMAPP_DP5Q_REPO` | Isolated Python and pinned DP5 repository paths |
@@ -240,7 +242,7 @@ curl.exe -H "X-ChemApp-Access-Token: test-access" http://127.0.0.1:8001/api/heal
 ## NMR processing principles
 
 - Imports preserve immutable processing sources, source hashes, and complex quadrature data (when the instrument file provides them).
-- "Preview" does not write to the database; "Apply" requires a matching `spectrum_revision` and produces a new revision number.
+- "Preview" does not write to the database; "Apply" requires matching source and result revisions and produces a new source revision. NMR preview/apply/reset send `expected_result_revision` as well as `expected_revision`; when a current analysis exists, missing result revision returns HTTP 428 and an outdated one returns HTTP 409, preserving unseen manual edits.
 - "Reset" replays from the immutable source to avoid cumulative distortion from repeated processing.
 - Phase correction requires complex quadrature data. Data historically saved with only real values explicitly refuses phase operations rather than fabricating a correction.
 - Peak detection, integration, and display preserve positive and negative signals; metrics use signed data and no longer silently truncate negative peaks.
@@ -254,12 +256,29 @@ Current pipeline:
 2. Clean solvent/TMS signals, merge overly close spectral lines, and preserve integrals, multiplicities, and assignment information.
 3. Filter database candidates by molecular formula first, then rank with ¹H/¹³C one-to-one peak matching.
 4. Only rankers trained with Bemis–Murcko scaffold-grouped validation are enabled; incompatible older models are automatically disabled.
-5. T5-generated results are listed separately as "experimental hypotheses", must pass RDKit structure and molecular formula validation, and do not add points to database candidates.
+5. Generated results are listed separately as "experimental hypotheses", must pass RDKit structure and molecular formula validation, and do not add points to database candidates. Each result preserves the actual generator, checkpoint variant, model, and input mode.
 
 Responses distinguish `ranking_score`, evidence level, preprocessing records,
 and warnings, and never misrepresent ranking scores as calibrated
 probabilities. Mixture analysis abstains when there is not enough independent
 evidence.
+
+Experimental NMR2Struct accepts an analyzed ¹³C peak list and/or a selected
+continuous ¹H source, according to the selected checkpoint. Explicit variants
+use exactly their named channels; `auto` selects an available, input-compatible
+variant and reports any unused modality. Missing, malformed, non-monotonic,
+or zero-signal required ¹H inputs are rejected rather than converted to a
+fabricated zero spectrum. Formula checks enforce the CHNO alphabet and
+19-heavy-atom bound; more than 19 observed distinct carbon shifts are also
+rejected without a formula. These are necessary input checks, not proof that
+an unknown compound is in the training domain.
+
+The public checkout does not include trained NMR2Struct checkpoints or the
+private evaluation report. Model availability and passing integration tests
+do not establish accuracy, calibrated confidence, or real trained inference.
+Canonical runtime modules and tests live under `backend/`; the existing
+repository-root duplicate files are retained but are not used by the API,
+backend test command, or desktop staging workflow.
 
 The traceable v2 audit index stores experimental conditions, source snapshots,
 licenses, and import decisions per individual spectrum and does not merge
@@ -314,10 +333,13 @@ hashes, and two-person review.
 
 ## Data integrity
 
-- SQLite uses WAL, foreign keys, and busy waiting; result-version writes and current-result updates are in the same transaction.
+- SQLite uses WAL, foreign keys, and busy waiting; result-version writes and current-result updates are in the same transaction. AI mutations atomically save their before/after versions and action history, and undo atomically restores the result and marks the action undone.
+- AI undo detects later manual saves, historical restores, and reanalysis. It atomically blocks undo that could overwrite these edits and explains why. Consecutive AI actions can still be undone in reverse order up to the next non-AI edit boundary. Older actions without verifiable edit history remain visible but cannot be unsafely undone.
 - Spectra and results each carry revision numbers. Stale writes return HTTP 409 to prevent silent overwrites from multiple tabs.
+- New result versions bind to their source spectrum revision. After processing changes a spectrum, older-source results cannot be restored or reapplied through AI undo. Pre-upgrade history with unverifiable provenance stays readable, but restoration is disabled; source revisions are never guessed or backfilled.
 - Results already manually confirmed are not overwritten by ordinary re-analysis; the UI requires explicit confirmation.
-- ZIP, DOCX, and HPLC packages enforce checks on file count, total uncompressed size, compression ratio, paths, and XML safety.
+- ZIP, DOCX, and HPLC packages enforce checks on file count, total uncompressed size, compression ratio, paths, and XML safety. Bruker and JCAMP also bound declared dimensions or compressed-data expansion before allocating arrays.
+- Multi-spectrum imports commit atomically: a parsing failure rejects the entire bundle. HPLC result sidecars must have a matching filename stem to avoid importing another sample’s peak table.
 - Exported CSV escapes cells that could trigger spreadsheet formula execution.
 
 Back up the running database before upgrading. `backend/data/chemapp.db` in the
@@ -369,3 +391,44 @@ This project is released under the MIT license; see [`LICENSE`](./LICENSE) in
 the repository root. Attribution requirements for third-party components and
 data are in [`NOTICE`](./NOTICE) and
 [`THIRD_PARTY_DATA.md`](./THIRD_PARTY_DATA.md).
+
+## Electron desktop (Linux / Windows)
+
+A sandboxed Electron entry point reuses the existing interface and manages a private local backend. See [desktop/LINUX.md](desktop/LINUX.md) for the Linux x64 standalone bundle and [desktop/README.md](desktop/README.md) for development, Windows x64 builds, data locations and security boundaries. Native Linux UI checks have been performed; Windows installers still require a Windows build and acceptance pass.
+
+### Download official NMR2Struct weights
+
+Open **Settings → NMR2Struct model weights**, without importing a spectrum first,
+and choose C-only (~96.9 MiB), H-only (~97.5 MiB), or H+C (~97.6 MiB). The panel
+shows progress, verification, storage location, cancellation, and retry. Leaving
+Settings does not cancel the backend download; reopening recovers its status.
+Verified files are reused, and downloaded models become available without restart.
+
+The only source is the [official MarklandGroup/NMR2Struct repository](https://github.com/MarklandGroup/NMR2Struct),
+pinned to commit `2aee0a1e6c1a13ed89d8f1b774e9cf79af639bfe`. The three supported
+spectrum-generation checkpoints are downloaded directly, without a ChemApp mirror
+or the unused standalone transformer. Exact size and SHA-256 are checked before
+atomic publication. Failure/cancellation preserves existing files; abandoned
+staging files are cleaned on the next attempt. One download per storage directory
+is allowed. Write APIs require admin authorization; desktop keeps its private
+session/token/origin protections. Cancellation takes effect after the current
+network operation returns or times out; connection and disk failures can be retried.
+  Requests use 10-second connection and 5-second read-inactivity timeouts with a
+  cooperative 15-minute transfer budget. OS DNS/header waits are not an absolute
+  wall-clock cancellation guarantee. Configured system proxies and CA bundles
+  are honored, TLS verification stays enabled, and .netrc credentials are not read.
+
+Desktop stores files under its user-data `models/nmr2struct`, never its installation
+folder. Linux web/CLI defaults to `$XDG_DATA_HOME/chemapp/models/nmr2struct`, falling
+back to `~/.local/share/chemapp/models/nmr2struct`. Operators may override this with
+`CHEMAPP_NMR2STRUCT_WEIGHTS_DIR`; API callers cannot choose URLs or paths. Existing
+bundled checkpoints remain compatible. The CLI uses the same installer:
+
+```bash
+python backend/scripts/fetch_nmr2struct_weights.py --variant cnmr_only
+python backend/scripts/fetch_nmr2struct_weights.py --check
+```
+
+Use one web worker: active job status is process-local. After restart, inspect
+installed files and retry incomplete downloads. File readiness does not establish
+scientific accuracy or calibrated probabilities.

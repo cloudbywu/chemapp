@@ -26,3 +26,16 @@ describe("auth route classification", () => {
     expect(needsAdmin("DELETE", "/api/spectra/abc?force=1")).toBe(true);
   });
 });
+
+describe("model download credentials", () => {
+  it("sends administrator credentials only for starting and cancelling downloads", () => {
+    expect(needsAdmin("POST", "/api/ml/nmr2struct/weights/downloads")).toBe(true);
+    expect(needsAdmin("POST", "/api/ml/nmr2struct/weights/downloads/job-1/cancel")).toBe(true);
+    expect(needsAdmin("POST", "/api/ml/nmr2struct/weights/downloads/job-1/cancel?retry=1")).toBe(true);
+    expect(needsAdmin("GET", "/api/ml/nmr2struct/weights")).toBe(false);
+    expect(needsAdmin("GET", "/api/ml/nmr2struct/weights/downloads/job-1")).toBe(false);
+    expect(needsAdmin("GET", "/api/ml/nmr2struct/weights/downloads/job-1/cancel")).toBe(false);
+    expect(needsAdmin("POST", "/api/ml/nmr2struct/weights/downloads/job-1/anything-else")).toBe(false);
+    expect(needsReviewer("POST", "/api/ml/nmr2struct/weights/downloads")).toBe(false);
+  });
+});

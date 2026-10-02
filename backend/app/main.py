@@ -18,6 +18,7 @@ from app.api.routes.analysis import router as analysis_router
 from app.api.routes.inference import router as inference_router
 from app.api.routes.ai import router as ai_router
 from app.api.routes.ml import router as ml_router
+from app.api.routes.model_weights import router as model_weights_router
 from app.api.routes.elucidate import router as elucidate_router
 from app.api.routes.reports import router as reports_router
 from app.api.routes.nmr import router as nmr_router
@@ -148,6 +149,7 @@ app.include_router(analysis_router)
 app.include_router(inference_router)
 app.include_router(ai_router)
 app.include_router(ml_router)
+app.include_router(model_weights_router)
 app.include_router(elucidate_router)
 app.include_router(reports_router)
 app.include_router(nmr_router)

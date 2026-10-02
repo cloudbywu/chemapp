@@ -37,6 +37,8 @@ from typing import Any
 
 import numpy as np
 
+from app.ml.nmr2struct_weights import checkpoint_path
+
 logger = logging.getLogger("chemapp.nmr2struct")
 
 _VENDOR_DIR = Path(__file__).resolve().parents[2] / "vendor" / "nmr2struct"
@@ -70,6 +72,7 @@ _MAX_HEAVY_ATOMS = 19
 _CHNO = {"C", "H", "N", "O"}
 
 _MODELS: dict[str, Any] = {}
+_MODEL_IDENTITIES: dict[str, tuple[Any, ...]] = {}
 _MODEL_LOCK = threading.Lock()
 
 
@@ -149,7 +152,7 @@ def _available_variant(variant: str) -> bool:
     return (
         variant in _CHECKPOINTS
         and (_VENDOR_DIR / "nmr").is_dir()
-        and (_VENDOR_DIR / "checkpoints" / _CHECKPOINTS[variant]).is_file()
+        and checkpoint_path(variant, _VENDOR_DIR) is not None
     )
 
 
@@ -161,11 +164,14 @@ def checkpoint_status() -> dict[str, bool]:
 
 def _load_model(variant: str):
     with _MODEL_LOCK:
-        if variant in _MODELS:
-            return _MODELS[variant]
-        if not _available_variant(variant):
+        path = checkpoint_path(variant, _VENDOR_DIR)
+        if path is None or not (_VENDOR_DIR / "nmr").is_dir():
             return None
         try:
+            stat = path.stat()
+            identity = (str(path), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            if variant in _MODELS and _MODEL_IDENTITIES.get(variant) == identity:
+                return _MODELS[variant]
             import torch
 
             if str(_VENDOR_DIR) not in sys.path:
@@ -175,13 +181,14 @@ def _load_model(variant: str):
             device = torch.device("cpu")
             model, _ = create_model(_model_args(variant), torch.float32, device)
             ckpt = torch.load(
-                _VENDOR_DIR / "checkpoints" / _CHECKPOINTS[variant],
+                path,
                 map_location=device,
                 weights_only=True,
             )
             model.load_state_dict(ckpt["model_state_dict"])
             model.eval()
             _MODELS[variant] = model
+            _MODEL_IDENTITIES[variant] = identity
             logger.info("NMR2Struct %s model loaded", variant)
         except Exception:
             logger.exception("NMR2Struct model load failed")

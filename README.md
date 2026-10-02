@@ -87,6 +87,8 @@ Copy-Item .env.example .env
 | `CHEMAPP_NMR_INDEX_V2` | 逐谱、可追溯的 NMR v2 审计索引（compose 已只读挂载；尚不直接用于生产排序） |
 | `CHEMAPP_NMR_RANKER` | NMR 排序器文件 |
 | `CHEMAPP_T5_MODEL_DIR` | 实验性 SMILES 生成模型目录 |
+| `CHEMAPP_NMR_GENERATOR` | 实验性生成器：`auto`、`nmr2struct` 或 `t5` |
+| `CHEMAPP_NMR2STRUCT_VARIANT` | NMR2Struct 输入/权重变体：`auto`（默认）、`cnmr_only`、`hnmr_only` 或 `multitask` |
 | `CHEMAPP_DP5Q_MODE` | 可选 DP5q ¹³C 前向诊断；仅接受 `off` 或 `shadow` |
 | `CHEMAPP_DP5Q_QUANTILE_MODE` | 官方 99 分位模型的管理员只读诊断；独立开关，默认 `off` |
 | `CHEMAPP_DP5Q_PYTHON` / `CHEMAPP_DP5Q_REPO` | 隔离 Python 与固定 DP5 仓库路径 |
@@ -242,7 +244,9 @@ curl.exe -H "X-ChemApp-Access-Token: test-access" http://127.0.0.1:8001/api/heal
 ## NMR 处理原则
 
 - 导入时保留不可变的处理源、来源哈希和复数正交数据（若仪器文件提供）。
-- “预览”不会写数据库；“应用”需要匹配 `spectrum_revision`，并产生新修订号。
+- “预览”不会写数据库；“应用”需要匹配源谱图和分析结果修订号，并产生新谱图修订号。
+  NMR 预览/应用/重置同时提交 `expected_revision` 与 `expected_result_revision`；
+  已有分析结果时，缺少结果修订号返回 HTTP 428，过期则返回 HTTP 409，保留客户端尚未看到的人工修改。
 - “重置”从不可变源重放，避免多次处理造成累积失真。
 - 相位校正要求复数正交数据。历史上仅保存实数的数据会明确拒绝相位操作，
   而不是伪造校正结果。
@@ -259,11 +263,22 @@ curl.exe -H "X-ChemApp-Access-Token: test-access" http://127.0.0.1:8001/api/heal
 3. 先按分子式筛选数据库候选，再使用 ¹H/¹³C 一对一峰匹配进行排序。
 4. 只有采用 Bemis–Murcko 骨架分组验证训练的排序器才会启用；不兼容的旧模型
    会自动禁用。
-5. T5 生成结果单列为“实验性假设”，必须通过 RDKit 结构与分子式校验，且不为
-   数据库候选加分。
+5. 生成结果单列为“实验性假设”，必须通过 RDKit 结构与分子式校验，且不为
+   数据库候选加分；每项保留实际生成器、权重变体、模型和输入模式。
 
 响应会区分 `ranking_score`、证据等级、预处理记录和警告，不把排序分数冒充
 校准概率。没有足够独立证据时，混合物分析会选择弃权。
+
+实验性 NMR2Struct 按所选权重接受已分析的 ¹³C 峰表和/或所选连续 ¹H 源谱图。
+显式变体只使用其命名通道；`auto` 选择可用且兼容输入的变体，并报告未使用的
+模态。必需的 ¹H 输入缺失、无效、轴非单调或没有信号时拒绝生成，不伪造成零谱。
+分子式检查限制为 CHNO 和最多 19 个重原子；即使未提供分子式，超过 19 个不同
+实测碳位移也会被拒绝。这些是必要输入检查，不能证明未知物处于模型训练域内。
+
+公开仓库不包含已训练的 NMR2Struct 权重及其私有评估报告。模型文件可用或
+集成测试通过，不等于验证了准确率、校准置信度或真实训练权重推理。
+运行时的正式模块和测试位于 `backend/`；现有仓库根目录重复副本保持不变，
+API、后端测试命令及桌面 staging 不使用这些副本。
 
 可追溯的 v2 审计索引以“单张谱图”为单位保存实验条件、来源快照、许可证和
 导入判定，不会把同一分子的不同实验条件合并成一张伪谱；来源哈希与快照
@@ -302,10 +317,13 @@ assignment 语义，结果只标记为未校准诊断分数，不进入正式排
 
 ## 数据完整性
 
-- SQLite 使用 WAL、外键和忙等待；结果版本写入与当前结果更新处于同一事务。
+- SQLite 使用 WAL、外键和忙等待；结果版本写入与当前结果更新处于同一事务。AI 修改将前后版本、当前结果和动作历史原子保存；撤销时也将结果恢复和撤销标记作为一个事务写入。
+- AI 撤销检测后续人工保存、历史恢复和重新分析；如会覆盖这些后续编辑，会原子阻止撤销并显示原因。连续 AI 操作仍可按相反顺序撤销，直到遇到非 AI 编辑边界。升级前无法验证编辑历史的 AI 动作仅保留历史，不允许不安全撤销。
 - 谱图和结果分别带修订号。过期写入返回 HTTP 409，避免多标签页静默覆盖。
+- 新结果版本绑定其来源谱图修订；谱图处理后，旧来源结果不能直接恢复或通过 AI 撤销重新写入。升级前已有、无法证明来源的历史版本仍保留并可查看，但恢复功能保持关闭，不会猜测或回填来源。
 - 已人工确认的结果不会被普通重新分析覆盖；界面会要求明确确认。
-- ZIP、DOCX 与 HPLC 包实施文件数、解压总量、压缩比、路径和 XML 安全检查。
+- ZIP、DOCX 与 HPLC 包实施文件数、解压总量、压缩比、路径和 XML 安全检查；Bruker 和 JCAMP 还会在分配内存前限制声明的维度或压缩数据展开量。
+- 多谱图导入采用单事务：包中任一文件解析失败，整批不入库。HPLC 结果旁文件仅按相同文件名主体匹配，避免混入其他样品的峰表。
 - 导出的 CSV 会转义可触发电子表格公式执行的单元格。
 
 请在升级前备份运行数据库。仓库中的 `backend/data/chemapp.db` 属于运行数据，
@@ -352,3 +370,39 @@ API 的输入模型默认拒绝未知字段，并对 ID 数量、标题、数值
 
 本项目以 MIT 许可证发布，见根目录 [`LICENSE`](./LICENSE)。第三方组件与数据
 的署名要求见 [`NOTICE`](./NOTICE) 与 [`THIRD_PARTY_DATA.md`](./THIRD_PARTY_DATA.md)。
+
+## Electron 桌面版（Linux / Windows）
+
+现已提供安全隔离的 Electron 桌面入口，复用现有界面并自动管理本地后端。Linux x64 独立运行包与验证步骤见 [desktop/LINUX.md](desktop/LINUX.md)；开发运行、Windows x64 构建、数据目录及安全边界见 [desktop/README.md](desktop/README.md)。Linux 原生界面已进行实测；Windows 安装包仍需在 Windows 上构建并验收。
+
+### 直接下载官方 NMR2Struct 权重
+
+在「设置 → NMR2Struct 模型权重」选择 C-only（约 96.9 MiB）、H-only（约
+97.5 MiB）或 H+C（约 97.6 MiB）。不必先导入谱图。界面显示下载进度、校验结果、
+保存目录，并支持取消与重试；离开设置页不会取消后台下载，重新进入后恢复显示。
+已验证的文件不会重复下载。下载完成后模型自动可用，无需重启。
+
+下载来源固定为 [MarklandGroup/NMR2Struct 官方仓库](https://github.com/MarklandGroup/NMR2Struct)，
+锁定提交 `2aee0a1e6c1a13ed89d8f1b774e9cf79af639bfe` 的三个谱图生成权重。
+不使用 ChemApp 镜像，不下载此功能未使用的独立 transformer 权重。
+后端逐块下载并检查精确大小和 SHA-256，通过后才原子替换正式文件。
+失败或取消不会删除已有权重；进程异常退出留下的临时文件会在下一次下载时清理。
+同一存储目录一次只允许一个下载，写入 API 要求管理员授权；桌面端沿用私有会话令牌。
+取消会在当前网络操作返回或超时后生效。连接超时为 10 秒、读取无数据超时为 5 秒，
+传输阶段有 15 分钟协作式时间预算；系统 DNS/响应头等待不保证严格的总墙钟时限。
+沿用已配置的系统代理和 CA 证书，保持 TLS 校验，不读取 .netrc 凭据。
+网络与磁盘错误可在修复后重试。
+
+桌面版保存在用户数据目录的 `models/nmr2struct`，无需对安装目录写入；Linux
+服务/命令行默认使用 `$XDG_DATA_HOME/chemapp/models/nmr2struct`（未设置时为
+`~/.local/share/chemapp/models/nmr2struct`）。管理员可用环境变量
+`CHEMAPP_NMR2STRUCT_WEIGHTS_DIR` 修改目录；网页请求不能指定 URL 或文件路径。
+现有打包目录里的权重仍兼容。命令行使用同一校验与下载逻辑：
+
+```bash
+python backend/scripts/fetch_nmr2struct_weights.py --variant cnmr_only
+python backend/scripts/fetch_nmr2struct_weights.py --check
+```
+
+下载任务状态为单进程内存状态，Web 服务请使用一个 worker；重新启动后重新查询文件状态，
+未完成任务可重试。权重可用只表示可加载与运行，不代表科学准确性验证或概率校准。

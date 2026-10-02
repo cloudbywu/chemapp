@@ -377,6 +377,7 @@ def test_invalid_formula_fails_closed(monkeypatch, formula):
 
 
 def test_checkpoint_inventory_does_not_claim_input_compatibility(tmp_path, monkeypatch):
+    monkeypatch.setenv("CHEMAPP_NMR2STRUCT_WEIGHTS_DIR", str(tmp_path / "user-models"))
     (tmp_path / "nmr").mkdir()
     (tmp_path / "checkpoints").mkdir()
     (tmp_path / "checkpoints" / "multitask_checkpoint.pt").touch()
@@ -520,7 +521,7 @@ def test_carbon_boundary_bin_loss_is_disclosed(monkeypatch):
     assert n2s.resolve_input_mode([18.3])["input_warnings"] == []
 
 
-def test_load_model_passes_h_only_channel_flags(monkeypatch):
+def test_load_model_passes_h_only_channel_flags(monkeypatch, tmp_path):
     torch = pytest.importorskip("torch")
     monkeypatch.syspath_prepend(str(n2s._VENDOR_DIR))
     import nmr.models
@@ -528,6 +529,9 @@ def test_load_model_passes_h_only_channel_flags(monkeypatch):
     monkeypatch.setattr(n2s, "_available_variant", lambda *args: True)
 
     selected = {}
+    checkpoint = tmp_path / "hnmr.pt"
+    checkpoint.write_bytes(b"fixture")
+    monkeypatch.setattr(n2s, "checkpoint_path", lambda *args: checkpoint)
 
     class ModelFixture:
         def load_state_dict(self, state):
@@ -608,3 +612,35 @@ def test_constant_proton_baseline_is_not_signal(monkeypatch):
         n2s.generate_candidates([18.3], spectrum_1h=([0, 1, 2], [1, 1, 1]))["reason"]
         == "no_usable_1h_signal"
     )
+
+
+def test_model_cache_refreshes_when_checkpoint_identity_changes(monkeypatch, tmp_path):
+    torch = pytest.importorskip("torch")
+    monkeypatch.syspath_prepend(str(n2s._VENDOR_DIR))
+    import nmr.models
+
+    checkpoint = tmp_path / "model.pt"
+    checkpoint.write_bytes(b"legacy fixture")
+    monkeypatch.setattr(n2s, "checkpoint_path", lambda *args: checkpoint)
+    monkeypatch.setattr(n2s, "_MODEL_IDENTITIES", {})
+    models = []
+    class Model:
+        def load_state_dict(self, state):
+            pass
+        def eval(self):
+            pass
+    def create(*args):
+        model = Model()
+        models.append(model)
+        return model, None
+    def load(*args, **kwargs):
+        assert kwargs["weights_only"] is True
+        return {"model_state_dict": {}}
+    monkeypatch.setattr(nmr.models, "create_model", create)
+    monkeypatch.setattr(torch, "load", load)
+    first = n2s._load_model("cnmr_only")
+    assert n2s._load_model("cnmr_only") is first
+    checkpoint.write_bytes(b"new official fixture")
+    second = n2s._load_model("cnmr_only")
+    assert second is not first
+    assert len(models) == 2

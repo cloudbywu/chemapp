@@ -49,6 +49,7 @@ interface Props {
   nucleus?: string;
   solvent?: string;
   spectra?: SpectrumListItem[];
+  onOpenModelAssets?: () => void;
 }
 
 function parseForwardEvidence(raw: unknown): ForwardEvidence | undefined {
@@ -141,6 +142,7 @@ export default function MLPredictionPanel({
   nucleus,
   solvent,
   spectra,
+  onOpenModelAssets,
 }: Props) {
   const { t } = useLang();
   const formulaId = useId();
@@ -363,6 +365,11 @@ export default function MLPredictionPanel({
             <span>{t.prediction.enableExperimentalGeneration}</span>
           </label>
           <span className="settings-hint">{t.prediction.experimentalGenerationHint}</span>
+          {onOpenModelAssets && (
+            <button type="button" className="text-button model-assets-link" onClick={onOpenModelAssets}>
+              {t.modelAssets.openSettings}
+            </button>
+          )}
         </div>
         <details className="prediction-constraints">
           <summary>{t.prediction.advancedConstraints}</summary>

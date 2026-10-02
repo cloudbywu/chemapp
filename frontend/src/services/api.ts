@@ -783,3 +783,53 @@ export async function getMLStatus(signal?: AbortSignal): Promise<Record<string, 
   const { data } = await api.get("/api/ml/status", { signal, timeout: 300000 });
   return data;
 }
+
+export type Nmr2StructAssetId = "cnmr_only" | "hnmr_only" | "multitask";
+export type ModelDownloadStatus = "queued" | "downloading" | "verifying" | "cancelling" | "completed" | "cancelled" | "error";
+
+export interface ModelDownloadJob {
+  id: string;
+  asset_id: Nmr2StructAssetId;
+  status: ModelDownloadStatus;
+  downloaded_bytes: number;
+  total_bytes: number;
+  error: string | null;
+}
+
+export interface Nmr2StructAsset {
+  id: Nmr2StructAssetId;
+  filename: string;
+  size_bytes: number;
+  sha256: string;
+  status: "ready" | "missing" | "invalid";
+  installed_bytes: number;
+  job: ModelDownloadJob | null;
+}
+
+export interface Nmr2StructWeights {
+  source_repo: string;
+  revision: string;
+  storage_dir: string;
+  assets: Nmr2StructAsset[];
+}
+
+/** All model transfers run in the authenticated backend, never in the renderer. */
+export async function getNmr2StructWeights(signal?: AbortSignal): Promise<Nmr2StructWeights> {
+  const { data } = await api.get("/api/ml/nmr2struct/weights", { signal });
+  return data;
+}
+
+export async function startNmr2StructDownload(assetId: Nmr2StructAssetId, signal?: AbortSignal): Promise<ModelDownloadJob> {
+  const { data } = await api.post("/api/ml/nmr2struct/weights/downloads", { asset_id: assetId }, { signal });
+  return data;
+}
+
+export async function getNmr2StructDownload(jobId: string, signal?: AbortSignal): Promise<ModelDownloadJob> {
+  const { data } = await api.get(`/api/ml/nmr2struct/weights/downloads/${encodeURIComponent(jobId)}`, { signal });
+  return data;
+}
+
+export async function cancelNmr2StructDownload(jobId: string, signal?: AbortSignal): Promise<ModelDownloadJob> {
+  const { data } = await api.post(`/api/ml/nmr2struct/weights/downloads/${encodeURIComponent(jobId)}/cancel`, {}, { signal });
+  return data;
+}

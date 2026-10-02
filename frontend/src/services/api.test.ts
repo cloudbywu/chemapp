@@ -28,6 +28,10 @@ import {
   elucidateCombined,
   processNmrSpectrum,
   resetNmrSpectrum,
+  getNmr2StructWeights,
+  startNmr2StructDownload,
+  getNmr2StructDownload,
+  cancelNmr2StructDownload,
 } from "./api";
 
 // Capture the installed interceptor before individual tests clear mock calls.
@@ -197,5 +201,25 @@ describe("elucidation evidence request wiring", () => {
     expect(mockApi.post).toHaveBeenCalledWith("/api/ml/elucidate/predict/combined", {
       id1: "carbon-1", id2: "proton-2", formula: "C2H6O", generate_experimental: true,
     }, { signal: controller.signal, timeout: 120000 });
+  });
+});
+
+
+describe("official model download API", () => {
+  beforeEach(() => { mockApi.get.mockReset(); mockApi.post.mockReset(); });
+
+  it("uses the shared authenticated client and preserves abort signals", async () => {
+    const signal = new AbortController().signal;
+    const data = { assets: [] };
+    mockApi.get.mockResolvedValue({ data });
+    mockApi.post.mockResolvedValue({ data: { id: "job-1" } });
+    expect(await getNmr2StructWeights(signal)).toBe(data);
+    expect(mockApi.get).toHaveBeenLastCalledWith("/api/ml/nmr2struct/weights", { signal });
+    await startNmr2StructDownload("cnmr_only", signal);
+    expect(mockApi.post).toHaveBeenLastCalledWith("/api/ml/nmr2struct/weights/downloads", { asset_id: "cnmr_only" }, { signal });
+    await getNmr2StructDownload("job/1", signal);
+    expect(mockApi.get).toHaveBeenLastCalledWith("/api/ml/nmr2struct/weights/downloads/job%2F1", { signal });
+    await cancelNmr2StructDownload("job/1", signal);
+    expect(mockApi.post).toHaveBeenLastCalledWith("/api/ml/nmr2struct/weights/downloads/job%2F1/cancel", {}, { signal });
   });
 });

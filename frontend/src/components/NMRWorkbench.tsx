@@ -44,6 +44,7 @@ interface Props {
   onResultChanged: (result: AnalysisResult | null) => void;
   onError: (message: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onOpenModelAssets?: () => void;
 }
 
 function initialProcessing(spectrum: SpectrumData) {
@@ -103,6 +104,7 @@ function NMRWorkbenchContent({
   onResultChanged,
   onError,
   onDirtyChange,
+  onOpenModelAssets,
 }: Props) {
   const { t } = useLang();
   const [analysisOptions, setAnalysisOptions] = useState<AnalysisOptions>({ auto_reference: false });
@@ -1184,7 +1186,8 @@ function NMRWorkbenchContent({
             <h3>{t.workbench.structureAssistance}</h3>
             <MLPredictionPanel key={`${spectrum.id}:${resultRevision}`} spectrumId={spectrum.id} hasResult={true} technique={result.technique} result={result}
               nucleus={spectrum.parameters?.nucleus as string || ""} spectra={spectra}
-              solvent={displayText(spectrum.metadata?.solvent || spectrum.parameters?.solvent)} />
+              solvent={displayText(spectrum.metadata?.solvent || spectrum.parameters?.solvent)}
+              onOpenModelAssets={onOpenModelAssets} />
           </section>
         </div>
       )}

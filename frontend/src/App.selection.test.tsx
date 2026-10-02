@@ -45,6 +45,7 @@ vi.mock("./components/AIChatSidebar", () => ({
 vi.mock("./components/CompareView", () => ({ default: () => null }));
 vi.mock("./components/InferencePanel", () => ({ default: () => null }));
 vi.mock("./components/SettingsPanel", () => ({ default: () => null }));
+vi.mock("./components/ModelAssetsPanel", () => ({ default: () => <p>Official model downloads</p> }));
 vi.mock("./components/MLTrainingPanel", () => ({ default: () => null }));
 vi.mock("./components/AnalysisControls", () => ({ default: () => null }));
 vi.mock("./components/QualityPanel", () => ({ default: () => null }));

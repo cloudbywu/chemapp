@@ -606,3 +606,13 @@ describe("experimental generator source provenance", () => {
     expect(elucidateStructure).not.toHaveBeenCalled();
   });
 });
+
+
+it("opens model downloads from experimental generation controls", () => {
+  localStorage.setItem("chemapp-lang", "en");
+  const onOpenModelAssets = vi.fn();
+  render(<LangProvider><MLPredictionPanel spectrumId="nmr-1" hasResult technique="NMR"
+    result={result} onOpenModelAssets={onOpenModelAssets} /></LangProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Download or manage official model weights" }));
+  expect(onOpenModelAssets).toHaveBeenCalledOnce();
+});

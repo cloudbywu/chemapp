@@ -11,6 +11,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 const InferencePanel = lazy(() => import("./components/InferencePanel"));
 const AIChatSidebar = lazy(() => import("./components/AIChatSidebar"));
 const SettingsPanel = lazy(() => import("./components/SettingsPanel"));
+const ModelAssetsPanel = lazy(() => import("./components/ModelAssetsPanel"));
 import MLPredictionPanel from "./components/MLPredictionPanel";
 const MLTrainingPanel = lazy(() => import("./components/MLTrainingPanel"));
 import AnalysisControls from "./components/AnalysisControls";
@@ -546,6 +547,7 @@ export default function App() {
                         }}
                         onError={setError}
                         onDirtyChange={setNmrWorkbenchDirty}
+                        onOpenModelAssets={() => requestTab("settings")}
                       />
                     ) : (
                       <>
@@ -659,6 +661,7 @@ export default function App() {
           )}
           {tab === "settings" && (
             <Suspense fallback={null}>
+              <ModelAssetsPanel />
               <SettingsPanel />
               <div style={{ marginTop: 20 }}>
                 <MLTrainingPanel />
