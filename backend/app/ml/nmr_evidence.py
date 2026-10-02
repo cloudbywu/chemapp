@@ -8,6 +8,7 @@ module keeps those deterministic, auditable steps separate from any ML model.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 import math
 import re
@@ -276,11 +277,17 @@ def build_generation_prompt(
 
 
 def validate_generated_smiles(
-    smiles_values: Iterable[str],
+    smiles_values: Iterable[str | dict[str, Any]],
     *,
     formula: str | None = None,
+    generator: str | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Validate generated structures without treating them as ranked evidence."""
+    """Validate structures while retaining their experimental origin.
+
+    Only provenance fields are copied. Generator-supplied scores, ranks, and
+    probability claims cannot bypass the validation/evidence boundary.
+    """
 
     try:
         from rdkit import Chem
@@ -296,8 +303,14 @@ def validate_generated_smiles(
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, str]] = []
     seen: set[str] = set()
+    provenance_keys = (
+        "model", "input_mode", "prompt_schema", "requested_variant",
+        "provided_modalities", "used_modalities", "ignored_modalities",
+        "input_warnings", "observed_carbon_lower_bound", "heavy_atoms",
+    )
     for raw_value in smiles_values:
-        raw = str(raw_value or "").strip()
+        candidate = raw_value if isinstance(raw_value, dict) else {}
+        raw = str(candidate.get("smiles", "") if candidate else raw_value or "").strip()
         if not raw:
             continue
         mol = Chem.MolFromSmiles(raw)
@@ -325,13 +338,23 @@ def validate_generated_smiles(
                 }
             )
             continue
+        candidate_provenance = {
+            key: deepcopy((provenance or {}).get(key, candidate.get(key)))
+            for key in provenance_keys
+            if key in (provenance or {}) or key in candidate
+        }
+        if candidate.get("origin"):
+            candidate_provenance["origin"] = str(candidate["origin"])
+        if generator:
+            candidate_provenance["generator"] = generator
         accepted.append(
             {
+                **candidate_provenance,
                 "rank": len(accepted) + 1,
                 "smiles": canonical,
                 "molecular_formula": generated_formula,
                 "molecular_weight": round(float(Descriptors.MolWt(mol)), 3),
-                "source": "t5-generation-experimental",
+                "source": f"{generator}-generation-experimental" if generator else "generation-experimental",
                 "evidence_level": "unverified",
                 "calibrated_probability": False,
             }

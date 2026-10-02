@@ -1,8 +1,11 @@
+import logging
 import torch
 import torch.nn as nn
 from typing import Optional
 import numpy as np
 from torch import Tensor
+
+logger = logging.getLogger(__name__)
 
 def infer_basic_model(model: nn.Module, 
                       batch: torch.Tensor, 
@@ -95,8 +98,7 @@ def get_top_k_sample_batched(k_val: int | float ,
     try:
         assert(torch.allclose(torch.sum(tot_probs, dim = -1), torch.tensor(1.0)))
     except:
-        print("Probabilities did not pass allclose check!")
-        print(f"Sum of probs is {torch.sum(tot_probs)}")
+        logger.warning("Probabilities did not pass allclose check; sum=%s", torch.sum(tot_probs))
     selected_index = torch.multinomial(tot_probs, 1)
     #For gather to work, both tensors have to have the same number of dimensions:
     if len(top_indices.shape) != len(selected_index.shape):
@@ -167,6 +169,7 @@ def infer_transformer_model(model: nn.Module,
         'track_gradients' (bool): Whether to track gradients during inference. This is because the transformer
             is known to misbehave if gradient tracking is disabled in certain cases
         'alphabet' (str): Path to a file containing the alphabet for the model to use in decoding
+        'verbose' (bool): Log token progress at INFO when true (default false)
         'decode' (bool): Whether to decode the output indices of the model against the provided alphabet
         'infer_fwd_fxn' (str): indicator for the forward function to use, one of 'generic', 'multitask'. 
             If not provided, the default is assumed to be 'generic', which maps onto the forward_generic_transformer() function
@@ -211,8 +214,8 @@ def infer_transformer_model(model: nn.Module,
         iter_counter = 0
 
         while not all_structures_completed:
-            if (iter_counter % 10 == 0):
-                print(f"On iteration {iter_counter}")
+            if opts.get('verbose', False) and iter_counter % 10 == 0:
+                logger.info("On iteration %s", iter_counter)
             
             next_pos = infer_fwd_fxn(model, working_x, working_y, track_gradients)
             # if track_gradients:
@@ -269,7 +272,7 @@ def infer_transformer_model(model: nn.Module,
                     curr_smi = ''.join(np.array(alphabet)[elem[1:-1].astype(int)])
                     generated_smiles.append(curr_smi)
                 except Exception as e:
-                    print(e)
+                    logger.warning("Could not decode generated tokens: %s", e)
                     generated_smiles.append('')
             curr_batch_predictions.append(generated_smiles)
         else:

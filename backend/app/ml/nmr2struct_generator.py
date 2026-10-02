@@ -1,11 +1,9 @@
 """NMR2Struct-based experimental candidate generator.
 
-Wraps the vendored NMR2Struct multitask model (backend/vendor/nmr2struct,
-MIT-licensed, https://github.com/MarklandGroup/NMR2Struct) as a drop-in
-replacement for the experimental T5 generator, which was measured to produce
-zero formula-valid candidates (0/30) while this model reaches Top-15 = 38.5%
-exact-structure hits on a 200-molecule CHNO-only nmrshiftdb2 sample with
-13C-only input (see backend/reports/ml_eval/ML_EVALUATION_REPORT.md).
+Wraps the vendored NMR2Struct multitask architecture (backend/vendor/nmr2struct,
+MIT-licensed, https://github.com/MarklandGroup/NMR2Struct). Checkpoint presence,
+input compatibility and architecture tests do not establish generation accuracy.
+Trained-checkpoint performance must be validated separately.
 
 Domain limits (enforced fail-closed):
 - The model alphabet is CHNO-only: molecules containing other elements are
@@ -13,8 +11,11 @@ Domain limits (enforced fail-closed):
   non-CHNO elements return unavailable status instead of wasting inference.
 - The training domain covers molecules up to 19 heavy atoms; larger
   requests return out_of_domain.
-- 13C peaks are required (the 13C-only checkpoint is the validated path;
-  our peak-list-derived pseudo-1H spectra measurably degrade generation).
+- Each checkpoint requires its actual input channels: 13C peaks, a continuous
+  1H spectrum, or both. Peak-list-derived pseudo-1H spectra are never synthesized.
+- CHEMAPP_NMR2STRUCT_VARIANT defaults to auto: prefer an available combined
+  checkpoint for H+C, then C-only, then H-only. Explicit cnmr_only, hnmr_only
+  and multitask choices consume exactly those channels and never switch silently.
 - The model is loaded lazily once per process (~98 MB checkpoint).
 
 Generated candidates are unverified proposals: they only become ranking
@@ -44,6 +45,27 @@ _CHECKPOINTS = {
     "cnmr_only": "cnmr_only_checkpoint.pt",
     "hnmr_only": "hnmr_only_checkpoint.pt",
 }
+# Channel order is (continuous 1H, peak-list 13C).
+_CHANNELS = {
+    "multitask": (True, True),
+    "cnmr_only": (False, True),
+    "hnmr_only": (True, False),
+}
+_INPUT_MODES = {
+    "multitask": "13c_peaks+1h_spectrum",
+    "cnmr_only": "13c_peaks",
+    "hnmr_only": "1h_spectrum",
+}
+_PROMPT_SCHEMAS = {
+    "multitask": "nmr2struct-13c-peaks+1h-spectrum-v1",
+    "cnmr_only": "nmr2struct-13c-peaks-v1",
+    "hnmr_only": "nmr2struct-1h-spectrum-v1",
+}
+# The fixed model proton grid covers [-2, 12) ppm at 0.0005 ppm spacing.
+_H_GRID = np.arange(-2.0, 12.0, 0.0005)
+# Carbon digitization thresholds, not established chemical applicability limits.
+_C_GRID = np.linspace(3.423975000000001, 231.30000000000004, 80)
+_C_PPM_SANITY_RANGE = (-20.0, 300.0)  # Same input guard as the API evidence path.
 _MAX_HEAVY_ATOMS = 19
 _CHNO = {"C", "H", "N", "O"}
 
@@ -51,7 +73,8 @@ _MODELS: dict[str, Any] = {}
 _MODEL_LOCK = threading.Lock()
 
 
-def _model_args(use_hnmr: bool = False) -> dict[str, Any]:
+def _model_args(variant: str = "cnmr_only") -> dict[str, Any]:
+    use_hnmr, use_cnmr = _CHANNELS[variant]
     return {
         "model_type": "MultiTaskModel",
         "load_model": None,
@@ -62,7 +85,7 @@ def _model_args(use_hnmr: bool = False) -> dict[str, Any]:
                 "n_hnmr_features": 28000,
                 "n_cnmr_features": 80,
                 "use_hnmr": use_hnmr,
-                "use_cnmr": True,
+                "use_cnmr": use_cnmr,
             },
             "forward_fxn": "src_fwd_fxn_conv_embedding",
             "substructure_model": "EncoderModel",
@@ -104,24 +127,39 @@ def _model_args(use_hnmr: bool = False) -> dict[str, Any]:
 
 
 def _variant() -> str:
-    env = os.environ.get("CHEMAPP_NMR2STRUCT_VARIANT", "cnmr_only").strip()
-    return env if env in _CHECKPOINTS else "cnmr_only"
+    return os.environ.get("CHEMAPP_NMR2STRUCT_VARIANT", "auto").strip().casefold()
 
 
-def available() -> bool:
-    """True when the vendored code and selected checkpoint are present."""
+def available(
+    peaks_13c: list[float] | None = None,
+    formula: str | None = None,
+    spectrum_1h: tuple[Any, Any] | None = None,
+) -> bool:
+    """Whether a checkpoint is present and compatible with these actual inputs.
 
-    return _available_variant(_variant())
+    This is a preflight check, not a claim that its weights load successfully.
+    With no spectral inputs this returns False. Use _available_variant for a
+    checkpoint-file-only check, for example to mark checkpoint-dependent tests.
+    """
+
+    return resolve_input_mode(peaks_13c, formula, spectrum_1h)["status"] == "ok"
 
 
 def _available_variant(variant: str) -> bool:
-    return (_VENDOR_DIR / "nmr").is_dir() and (
-        _VENDOR_DIR / "checkpoints" / _CHECKPOINTS[variant]
-    ).is_file()
+    return (
+        variant in _CHECKPOINTS
+        and (_VENDOR_DIR / "nmr").is_dir()
+        and (_VENDOR_DIR / "checkpoints" / _CHECKPOINTS[variant]).is_file()
+    )
 
 
-def _load_model(variant: str | None = None):
-    variant = variant or _variant()
+def checkpoint_status() -> dict[str, bool]:
+    """Checkpoint asset inventory only; does not imply input or load readiness."""
+
+    return {variant: _available_variant(variant) for variant in _CHECKPOINTS}
+
+
+def _load_model(variant: str):
     with _MODEL_LOCK:
         if variant in _MODELS:
             return _MODELS[variant]
@@ -135,7 +173,7 @@ def _load_model(variant: str | None = None):
             from nmr.models import create_model  # type: ignore[import-not-found]
 
             device = torch.device("cpu")
-            model, _ = create_model(_model_args(use_hnmr=variant == "multitask"), torch.float32, device)
+            model, _ = create_model(_model_args(variant), torch.float32, device)
             ckpt = torch.load(
                 _VENDOR_DIR / "checkpoints" / _CHECKPOINTS[variant],
                 map_location=device,
@@ -167,29 +205,182 @@ def _heavy_atom_count(formula: str) -> int | None:
 
 
 def _rasterize_1h(x_ppm: Any, y_intensity: Any, h_grid: Any) -> Any:
-    """Interpolate a continuous 1H spectrum onto the model grid.
+    """Validate a continuous trace and interpolate without inventing edge signal.
 
-    Mirrors the vendored SingleNMRDataset.process_hnmr: ascending order,
-    np.interp onto the 0.0005 ppm grid, normalize by the tallest peak.
+    Both ascending and descending axes are accepted; scrambled, duplicate,
+    mismatched and nonfinite samples fail closed instead of being repaired.
+    Signal outside the measured range is zero, not an extrapolated plateau.
     """
 
-    x = np.asarray(x_ppm, dtype=float).flatten()
-    y = np.asarray(y_intensity, dtype=float).flatten()
-    n = min(x.size, y.size)
-    if n < 2:
-        return np.zeros(len(h_grid))
-    x, y = x[:n], y[:n]
-    finite = np.isfinite(x) & np.isfinite(y)
-    x, y = x[finite], y[finite]
-    if x.size < 2:
-        return np.zeros(len(h_grid))
-    if np.any(np.diff(x) < 0):  # NMR spectra are usually descending ppm
+    try:
+        x = np.asarray(x_ppm, dtype=float)
+        y = np.asarray(y_intensity, dtype=float)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("invalid_1h_spectrum") from exc
+    if x.ndim != 1 or y.ndim != 1 or x.size != y.size or x.size < 2:
+        raise ValueError("invalid_1h_spectrum")
+    if not np.all(np.isfinite(x)) or not np.all(np.isfinite(y)):
+        raise ValueError("invalid_1h_spectrum")
+    if np.all(y == y[0]):
+        raise ValueError("no_usable_1h_signal")
+    diffs = np.diff(x)
+    if np.all(diffs < 0):
         x, y = x[::-1], y[::-1]
-    h = np.interp(h_grid, x, y)
-    peak = h.max()
-    if peak > 0:
-        h = h / peak
-    return h
+    elif not np.all(diffs > 0):
+        raise ValueError("nonmonotonic_1h_spectrum")
+    h = np.interp(h_grid, x, y, left=0.0, right=0.0)
+    peak = float(h.max())
+    if not np.isfinite(peak) or peak <= 0:
+        raise ValueError("no_usable_1h_signal")
+    # Baseline-corrected traces may contain negative noise, but must have a
+    # finite positive signal inside the model's supported proton window.
+    with np.errstate(over="ignore", invalid="ignore"):
+        normalized = h / peak
+    if not np.all(np.isfinite(normalized)):
+        raise ValueError("invalid_1h_spectrum")
+    return normalized
+
+
+def _resolve_inputs(
+    peaks_13c: list[float] | None,
+    formula: str | None,
+    spectrum_1h: tuple[Any, Any] | None,
+) -> tuple[dict[str, Any], list[float], Any]:
+    """Single implementation used by both preflight and generation."""
+
+    requested = _variant()
+    explicit = requested if requested in _CHECKPOINTS else None
+    result: dict[str, Any] = {
+        "status": "unavailable",
+        "generator": "nmr2struct",
+        "model": {
+            "name": "NMR2Struct",
+            "variant": explicit,
+            "checkpoint": _CHECKPOINTS.get(explicit),
+            "reference": "10.1021/acscentsci.4c01132",
+        },
+        "requested_variant": requested,
+        "input_mode": _INPUT_MODES.get(explicit),
+        "prompt_schema": _PROMPT_SCHEMAS.get(explicit),
+        "provided_modalities": [],
+        "used_modalities": [],
+        "ignored_modalities": [],
+        "input_warnings": [],
+        "calibrated_probability": False,
+    }
+    peaks: list[float] = []
+    h_spec = None
+
+    def reject(reason: str):
+        return {**result, "reason": reason}, peaks, h_spec
+
+    if requested not in {*_CHECKPOINTS, "auto"}:
+        return reject("unsupported_variant")
+    try:
+        values = np.asarray([] if peaks_13c is None else peaks_13c, dtype=float)
+    except (TypeError, ValueError, OverflowError):
+        return reject("invalid_13c_peaks")
+    if values.ndim != 1 or not np.all(np.isfinite(values)):
+        return reject("invalid_13c_peaks")
+    peaks = values.tolist()
+    if np.any(values < _C_PPM_SANITY_RANGE[0]) or np.any(
+        values > _C_PPM_SANITY_RANGE[1]
+    ):
+        return reject("13c_shifts_outside_supported_range")
+    if peaks:
+        result["provided_modalities"].append("13c_peaks")
+    if spectrum_1h is not None:
+        result["provided_modalities"].append("1h_spectrum")
+        try:
+            if len(spectrum_1h) != 2:
+                return reject("invalid_1h_spectrum")
+            h_spec = _rasterize_1h(spectrum_1h[0], spectrum_1h[1], _H_GRID)
+        except (TypeError, ValueError, IndexError, OverflowError) as exc:
+            reason = str(exc)
+            return reject(
+                reason
+                if reason
+                in {
+                    "invalid_1h_spectrum",
+                    "nonmonotonic_1h_spectrum",
+                    "no_usable_1h_signal",
+                }
+                else "invalid_1h_spectrum"
+            )
+    if formula:
+        if not isinstance(formula, str) or not re.fullmatch(
+            r"(?:[A-Z][a-z]?(?:[1-9]\d*)?)+", formula.strip()
+        ):
+            return reject("invalid_formula")
+        if not _formula_elements(formula) <= _CHNO:
+            return reject("formula_outside_chno_alphabet")
+        try:
+            heavy = _heavy_atom_count(formula)
+        except ValueError:
+            return reject("invalid_formula")
+        if heavy is not None and heavy > _MAX_HEAVY_ATOMS:
+            result["heavy_atoms"] = heavy
+            return reject("out_of_domain_heavy_atoms")
+    # Distinct observed carbon environments are a lower bound on carbon atoms,
+    # even when the formula is missing or understates the molecular size.
+    observed_carbon_lower_bound = len(set(peaks))
+    result["observed_carbon_lower_bound"] = observed_carbon_lower_bound
+    if observed_carbon_lower_bound > _MAX_HEAVY_ATOMS:
+        return reject("out_of_domain_observed_carbons")
+    if requested == "auto":
+        choices = []
+        if peaks and h_spec is not None:
+            choices.append("multitask")
+        if peaks:
+            choices.append("cnmr_only")
+        if h_spec is not None:
+            choices.append("hnmr_only")
+        if not choices:
+            return reject("no_13c_peaks")
+        variant = next((v for v in choices if _available_variant(v)), choices[0])
+    else:
+        variant = requested
+    use_hnmr, use_cnmr = _CHANNELS[variant]
+    result["model"]["variant"] = variant
+    result["model"]["checkpoint"] = _CHECKPOINTS[variant]
+    result["input_mode"] = _INPUT_MODES[variant]
+    result["prompt_schema"] = _PROMPT_SCHEMAS[variant]
+    if use_cnmr and not peaks:
+        return reject("no_13c_peaks")
+    if use_hnmr and h_spec is None:
+        return reject("no_1h_spectrum")
+    if use_cnmr and any(shift < _C_GRID[0] or shift >= _C_GRID[-1] for shift in peaks):
+        result["input_warnings"].append("13c_shifts_use_boundary_bins")
+    intended = (["13c_peaks"] if use_cnmr else []) + (
+        ["1h_spectrum"] if use_hnmr else []
+    )
+    result["ignored_modalities"] = [
+        modality
+        for modality in result["provided_modalities"]
+        if modality not in intended
+    ]
+    if not _available_variant(variant):
+        return reject("model_unavailable")
+    result["used_modalities"] = intended
+    result["status"] = "ok"
+    return result, peaks, h_spec
+
+
+def resolve_input_mode(
+    peaks_13c: list[float] | None = None,
+    formula: str | None = None,
+    spectrum_1h: tuple[Any, Any] | None = None,
+) -> dict[str, Any]:
+    """Return input-aware checkpoint selection and its explicit provenance.
+
+    Explicit variants consume exactly their named channels. Auto prefers an
+    available combined checkpoint for valid H+C input, then C-only, then H-only.
+    Invalid supplied evidence and known domain violations always fail closed,
+    including when that modality would otherwise be ignored. A successful
+    preflight only establishes input compatibility and checkpoint presence.
+    """
+
+    return _resolve_inputs(peaks_13c, formula, spectrum_1h)[0]
 
 
 def generate_candidates(
@@ -198,70 +389,32 @@ def generate_candidates(
     top_k: int = 15,
     spectrum_1h: tuple[Any, Any] | None = None,
 ) -> dict[str, Any]:
-    """Generate structure candidates from a 13C peak list.
+    """Generate unverified structure proposals using compatible spectral inputs.
 
-    Returns a dict with status and candidates; never raises - every failure
-    mode maps to an explicit non-ok status (fail-closed).
+    A continuous 1H spectrum is required for proton channels; peak lists are
+    never synthesized into 1H traces. Failures return explicit non-ok statuses.
     """
 
     started = time.time()
+    resolution, peaks, h_spec = _resolve_inputs(peaks_13c, formula, spectrum_1h)
     base: dict[str, Any] = {
-        "generator": "nmr2struct",
-        "model": {
-            "name": "NMR2Struct",
-            "variant": _variant(),
-            "checkpoint": _CHECKPOINTS[_variant()],
-            "reference": "10.1021/acscentsci.4c01132",
-        },
-        "calibrated_probability": False,
+        **resolution,
         "candidates": [],
         "inference_time_ms": 0,
     }
-    peaks = []
-    for value in peaks_13c:
-        try:
-            shift = float(value)
-        except (TypeError, ValueError):
-            continue
-        if np.isfinite(shift):
-            peaks.append(shift)
-    if not peaks:
-        return {**base, "status": "unavailable", "reason": "no_13c_peaks"}
-    if formula:
-        elements = _formula_elements(formula)
-        if not elements <= _CHNO:
-            return {
-                **base,
-                "status": "unavailable",
-                "reason": "formula_outside_chno_alphabet",
-            }
-        heavy = _heavy_atom_count(formula)
-        if heavy is not None and heavy > _MAX_HEAVY_ATOMS:
-            return {
-                **base,
-                "status": "unavailable",
-                "reason": "out_of_domain_heavy_atoms",
-                "heavy_atoms": heavy,
-            }
-    variant = _variant()
-    use_multitask = (
-        spectrum_1h is not None
-        and os.environ.get("CHEMAPP_NMR2STRUCT_VARIANT", "cnmr_only").strip()
-        in {"cnmr_only", "auto", "multitask"}
-        and _available_variant("multitask")
-    )
-    if use_multitask:
-        variant = "multitask"
-    base["model"]["variant"] = variant
-    base["model"]["checkpoint"] = _CHECKPOINTS[variant]
+    if resolution["status"] != "ok":
+        return base
+    variant = resolution["model"]["variant"]
     model = _load_model(variant)
     if model is None:
-        return {**base, "status": "unavailable", "reason": "model_unavailable"}
+        return {
+            **base,
+            "status": "unavailable",
+            "reason": "model_unavailable",
+            "used_modalities": [],
+        }
 
     try:
-        import contextlib
-        import io
-
         import torch
 
         from nmr.inference.inference_fxns import (  # type: ignore[import-not-found]
@@ -272,13 +425,19 @@ def generate_candidates(
             c_grid = np.asarray(pickle.load(fh), dtype=float)
         with open(_VENDOR_DIR / "example_configs" / "HNMR_shifts.p", "rb") as fh:
             h_grid = np.asarray(pickle.load(fh), dtype=float)
+        use_hnmr, use_cnmr = _CHANNELS[variant]
+        if c_grid.shape != _C_GRID.shape or not np.allclose(c_grid, _C_GRID):
+            raise ValueError("Unexpected NMR2Struct carbon grid")
         c_spec = np.zeros(len(c_grid))
-        values = np.sort(np.asarray(peaks, dtype=float))
-        bins = np.digitize(values, c_grid)
-        bins = np.where(bins == len(c_grid), len(c_grid) - 1, bins)
-        c_spec[bins] = 1
-        if variant == "multitask" and spectrum_1h is not None:
-            h_spec = _rasterize_1h(spectrum_1h[0], spectrum_1h[1], h_grid)
+        if use_cnmr:
+            values = np.sort(np.asarray(peaks, dtype=float))
+            bins = np.digitize(values, c_grid)
+            bins = np.where(bins == len(c_grid), len(c_grid) - 1, bins)
+            c_spec[bins] = 1
+        if use_hnmr:
+            # Refuse a changed vendor grid rather than disagreeing with preflight.
+            if h_grid.shape != _H_GRID.shape or not np.allclose(h_grid, _H_GRID):
+                raise ValueError("Unexpected NMR2Struct proton grid")
         else:
             h_spec = np.zeros(len(h_grid))
         spectrum = np.concatenate([h_spec, c_spec])
@@ -293,12 +452,12 @@ def generate_candidates(
             "alphabet": str(_VENDOR_DIR / "example_configs" / "alphabet.npy"),
             "decode": True,
             "infer_fwd_fxn": "multitask",
+            "verbose": False,
         }
         device = torch.device("cpu")
-        # The vendored generation loop prints progress every 10 tokens;
-        # keep that chatter out of the server log.
-        with contextlib.redirect_stdout(io.StringIO()):
-            raw = infer_transformer_model(model, (x, y), opts, device)
+        # Per-call verbosity avoids mutating process-global sys.stdout in the
+        # server's concurrent inference workers.
+        raw = infer_transformer_model(model, (x, y), opts, device)
         decoded: list[str] = []
         for pred in raw:
             seq = pred[1] if isinstance(pred, (tuple, list)) else pred
@@ -324,5 +483,6 @@ def generate_candidates(
             **base,
             "status": "unavailable",
             "reason": "generation_error",
+            "used_modalities": [],
             "inference_time_ms": round((time.time() - started) * 1000, 1),
         }

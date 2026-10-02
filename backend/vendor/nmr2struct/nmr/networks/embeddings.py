@@ -1,7 +1,10 @@
+import logging
 import torch
 from torch import Tensor
 from torch import nn
 import math
+
+logger = logging.getLogger(__name__)
 
 class ProbabilityEmbedding(nn.Module):
     """ MLP based connection between substructure predictions and transformer. """
@@ -173,8 +176,7 @@ class ConvolutionalEmbedding(nn.Module):
         #   to the model!
         assert self.use_hnmr or self.use_cnmr
 
-        print("Final sequence length after conv embedding:")
-        print(self.h_spectrum_final_seq_len)
+        logger.debug("Final sequence length after conv embedding: %s", self.h_spectrum_final_seq_len)
     
     #From https://pytorch.org/docs/stable/generated/torch.nn.Conv1d.html
     def _calculate_dim_after_conv(self, 

@@ -5,8 +5,10 @@ import os
 import sqlite3
 import time
 from dataclasses import dataclass
+from collections.abc import Mapping
 from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import numpy as np
@@ -128,7 +130,7 @@ def _peak_values(peaks: list[Any]) -> list[float]:
                 values.append(value)
         elif isinstance(peak, (int, float)) and np.isfinite(float(peak)):
             values.append(float(peak))
-        elif isinstance(peak, dict):
+        elif isinstance(peak, Mapping):
             raw = peak.get("shift", peak.get("position", peak.get("center_ppm")))
             if raw is not None:
                 try:
@@ -158,7 +160,7 @@ def _normalise_resonance_shifts(peaks: list[Any], nucleus: str) -> list[float]:
         elif isinstance(peak, (int, float)):
             raw_shift = peak
             raw_intensity = 1.0
-        elif isinstance(peak, dict):
+        elif isinstance(peak, Mapping):
             raw_shift = peak.get("shift", peak.get("position", peak.get("center_ppm")))
             raw_intensity = peak.get("intensity", peak.get("height", 1.0))
         else:
@@ -577,20 +579,49 @@ def index_status() -> dict[str, Any]:
     }
 
 
+@dataclass(frozen=True)
+class _ReferenceSnapshot:
+    # Records and their normalized peaks belong to one SELECT. Neither the
+    # container nor its nested values can be mutated by concurrent readers.
+    records: tuple[Mapping[str, Any], ...]
+    normalized: tuple[tuple[tuple[float, ...], tuple[float, ...]], ...]
+
+
+def _freeze_reference(value: Any) -> Any:
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze_reference(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_reference(item) for item in value)
+    return value
+
+
 @lru_cache(maxsize=8)
-def _load_records_cached(index_path: str, mtime_ns: int, size: int, limit: int) -> tuple[dict[str, Any], ...]:
+def _load_records_cached(index_path: str, mtime_ns: int, size: int, limit: int) -> _ReferenceSnapshot:
     conn = sqlite3.connect(index_path)
-    query = """
-        SELECT id, source, source_id, name, smiles, inchikey, formula, mw,
-               peaks_13c, peaks_1h, metadata
-        FROM nmr_records
-    """
-    if limit > 0:
-        rows = conn.execute(query + " LIMIT ?", (limit,)).fetchall()
-    else:
-        rows = conn.execute(query).fetchall()
-    conn.close()
-    return _records_from_rows(rows)
+    try:
+        query = """
+            SELECT id, source, source_id, name, smiles, inchikey, formula, mw,
+                   peaks_13c, peaks_1h, metadata
+            FROM nmr_records
+        """
+        if limit > 0:
+            rows = conn.execute(query + " LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = conn.execute(query).fetchall()
+    finally:
+        conn.close()
+    records = _records_from_rows(rows)
+    normalized = tuple(
+        (
+            tuple(_normalise_resonance_shifts(rec["peaks_13c"], "13C")),
+            tuple(_normalise_resonance_shifts(rec["peaks_1h"], "1H")),
+        )
+        for rec in records
+    )
+    return _ReferenceSnapshot(
+        records=tuple(_freeze_reference(rec) for rec in records),
+        normalized=normalized,
+    )
 
 
 def _records_from_rows(rows: list[tuple[Any, ...]]) -> tuple[dict[str, Any], ...]:
@@ -612,38 +643,15 @@ def _records_from_rows(rows: list[tuple[Any, ...]]) -> tuple[dict[str, Any], ...
     return tuple(records)
 
 
-@lru_cache(maxsize=8)
-def _normalized_records_cached(
-    index_path: str, mtime_ns: int, size: int, limit: int
-) -> tuple[tuple[list[float], list[float]], ...]:
-    """Precompute per-record normalised peak lists, cached alongside the rows.
-
-    Reference-side normalisation is deterministic, so computing it once per
-    index (instead of once per query per record) preserves scoring exactly
-    while removing the dominant per-record cost of rank_candidates.
-    """
-
-    records = _load_records_cached(index_path, mtime_ns, size, limit)
-    return tuple(
-        (
-            _normalise_resonance_shifts(rec["peaks_13c"], "13C"),
-            _normalise_resonance_shifts(rec["peaks_1h"], "1H"),
-        )
-        for rec in records
-    )
-
-
-def _normalized_records(
-    index_path: str, mtime_ns: int, size: int, limit: int
-) -> tuple[tuple[list[float], list[float]], ...]:
-    return _normalized_records_cached(index_path, mtime_ns, size, limit)
-
-
-def _load_records(limit: int = 0) -> list[dict[str, Any]]:
+def _load_reference_snapshot(limit: int = 0) -> _ReferenceSnapshot:
     ensure_quick_index()
     path = _index_path()
     stat = path.stat()
-    return list(_load_records_cached(str(path), stat.st_mtime_ns, stat.st_size, limit))
+    return _load_records_cached(str(path), stat.st_mtime_ns, stat.st_size, limit)
+
+
+def _load_records(limit: int = 0) -> list[Mapping[str, Any]]:
+    return list(_load_reference_snapshot(limit).records)
 
 
 def _load_records_by_formula(formula: str) -> list[dict[str, Any]]:
@@ -1035,12 +1043,11 @@ def rank_candidates(
             for rec in records
         ]
     else:
-        records = _load_records(limit=max_records)
-        index_path = _index_path()
-        stat = index_path.stat()
-        ref_norms = _normalized_records(
-            str(index_path), stat.st_mtime_ns, stat.st_size, max_records
-        )
+        # Take exactly one immutable snapshot. Re-reading the database/cache
+        # for normalized values could pair old rows with a newer import.
+        snapshot = _load_reference_snapshot(limit=max_records)
+        records = snapshot.records
+        ref_norms = snapshot.normalized
 
     modality = "1h+13c" if q1h and q13 else "1h" if q1h else "13c"
     ranker_bundle = _load_ranker()

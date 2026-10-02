@@ -11,6 +11,7 @@ import time
 from typing import Annotated, Any, Literal, Optional
 import uuid
 
+import numpy as np
 import torch
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -801,6 +802,10 @@ class PredictRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_peaks(self):
+        if any(not -5.0 <= peak.shift <= 30.0 for peak in self.peaks_1h):
+            raise ValueError("1H shifts must be between -5 and 30 ppm")
+        if any(not -20.0 <= peak.shift <= 300.0 for peak in self.peaks_13c):
+            raise ValueError("13C shifts must be between -20 and 300 ppm")
         if not self.peaks_13c and not self.peaks_1h:
             raise ValueError("At least one NMR peak is required")
         return self
@@ -891,13 +896,30 @@ def _predict_from_peaks(
         )
 
     decoded = [_tokenizer.decode(item, skip_special_tokens=True).strip() for item in gen]
-    candidates, validation = validate_generated_smiles(decoded, formula=formula)
+    provenance = _t5_provenance(p13, p1h)
+    candidates, validation = validate_generated_smiles(
+        decoded, formula=formula, generator="t5", provenance=provenance
+    )
     return {
         "status": "completed",
         "inference_time_ms": round((time.time() - t0) * 1000, 1),
         "candidates": candidates,
         "validation": validation,
+        **provenance,
+    }
+
+
+def _t5_provenance(p13: list[dict], p1h: list[dict]) -> dict[str, Any]:
+    modalities = (["13c_peaks"] if p13 else []) + (["1h_peaks"] if p1h else [])
+    return {
+        "generator": "t5",
+        "model": {"name": "T5", "variant": "legacy_peak_prompt"},
+        "input_mode": "+".join(modalities),
         "prompt_schema": "formula+nucleus+shift+integral+multiplicity-v1",
+        "provided_modalities": modalities,
+        "used_modalities": modalities,
+        "ignored_modalities": [],
+        "calibrated_probability": False,
     }
 
 
@@ -921,52 +943,91 @@ def _dispatch_generation(
     choice = os.environ.get("CHEMAPP_NMR_GENERATOR", "auto").strip().casefold()
     if choice not in {"auto", "nmr2struct", "t5"}:
         choice = "auto"
+    shifts = [float(peak["shift"]) for peak in p13]
     use_nmr2struct = choice == "nmr2struct"
+    resolution = None
+    fallback = None
     if choice == "auto":
         from app.ml.nmr2struct_generator import available as nmr2struct_available
 
-        use_nmr2struct = nmr2struct_available()
+        use_nmr2struct = nmr2struct_available(shifts, formula=formula, spectrum_1h=spectrum_1h)
+        if not use_nmr2struct:
+            from app.ml.nmr2struct_generator import resolve_input_mode
+
+            resolution = resolve_input_mode(shifts, formula=formula, spectrum_1h=spectrum_1h)
+            # Missing assets permit the legacy fallback. Fully automatic mode
+            # also preserves T5's valid proton-peak-only input path, which has no
+            # compatible NMR2Struct modality. Invalid evidence, unsupported
+            # domains and explicitly selected modality errors never fall back.
+            proton_peak_only = (
+                resolution.get("reason") == "no_13c_peaks"
+                and os.environ.get("CHEMAPP_NMR2STRUCT_VARIANT", "auto").strip() == "auto"
+                and bool(p1h) and not p13 and spectrum_1h is None
+            )
+            use_nmr2struct = resolution.get("reason") != "model_unavailable" and not proton_peak_only
+            if not use_nmr2struct:
+                fallback = {"generator": "nmr2struct", "reason": resolution.get("reason"),
+                            "model": resolution.get("model")}
+
     if use_nmr2struct:
         from app.ml import nmr2struct_generator
 
-        shifts = []
-        for peak in p13:
-            try:
-                shifts.append(float(peak.get("shift")))
-            except (TypeError, ValueError, AttributeError):
-                continue
-        result = nmr2struct_generator.generate_candidates(
+        result = resolution or nmr2struct_generator.generate_candidates(
             shifts, formula=formula, top_k=top_k, spectrum_1h=spectrum_1h
         )
+        provenance = {
+            key: value for key, value in result.items()
+            if key in {
+                "model", "input_mode", "prompt_schema", "requested_variant",
+                "provided_modalities", "used_modalities", "ignored_modalities",
+                "calibrated_probability", "input_warnings",
+                "observed_carbon_lower_bound", "heavy_atoms",
+            }
+        }
+        if p1h:
+            provenance["provided_modalities"] = [*provenance.get("provided_modalities", []), "1h_peaks"]
+            provenance["ignored_modalities"] = [*provenance.get("ignored_modalities", []), "1h_peaks"]
+        provenance["generator"] = "nmr2struct"
+        provenance["calibrated_probability"] = False
         if result.get("status") == "ok":
-            decoded = [
-                str(candidate.get("smiles"))
-                for candidate in result.get("candidates", [])
-                if isinstance(candidate, dict) and candidate.get("smiles")
-            ]
             candidates, validation = validate_generated_smiles(
-                decoded, formula=formula
+                result.get("candidates", []), formula=formula,
+                generator="nmr2struct", provenance=provenance,
             )
             return {
-                "status": "completed",
+                **provenance,
+                "status": "completed" if validation.get("status") != "rdkit_unavailable" else "generation_unavailable",
+                "generator_status": result.get("status"),
                 "inference_time_ms": result.get("inference_time_ms", 0),
                 "candidates": candidates,
                 "validation": validation,
-                "prompt_schema": "nmr2struct-13c-peaks-v1",
-                "generator": "nmr2struct",
             }
-        if choice == "nmr2struct":
+        if choice == "nmr2struct" or result.get("reason") != "model_unavailable":
             return {
+                **provenance,
                 "status": "generation_unavailable",
+                "generator_status": result.get("status"),
                 "inference_time_ms": result.get("inference_time_ms", 0),
                 "candidates": [],
                 "error_code": str(result.get("reason") or "generation_failed"),
-                "generator": "nmr2struct",
             }
+        fallback = {"generator": "nmr2struct", "reason": result.get("reason"),
+                    "model": result.get("model")}
         logger.info("NMR2Struct unavailable (%s); falling back to T5",
                     result.get("reason"))
     generated = _safe_generate(p13, p1h, formula, top_k, num_beams)
-    generated["generator"] = "t5"
+    provenance = _t5_provenance(p13, p1h)
+    if generated.get("status") != "completed":
+        provenance["used_modalities"] = []
+    if spectrum_1h is not None:
+        provenance["provided_modalities"] = [*provenance["provided_modalities"], "1h_spectrum"]
+        provenance["ignored_modalities"] = ["1h_spectrum"]
+    generated.update(provenance)
+    if fallback is not None:
+        generated["fallback_from"] = fallback
+    for candidate in generated.get("candidates", []):
+        candidate.update(provenance)
+        candidate["source"] = "t5-generation-experimental"
     return generated
 
 
@@ -999,6 +1060,20 @@ def get_status():
     )
     forward_settings = _forward_settings()
     quantile_settings = _quantile_shadow_settings()
+    from app.ml.nmr2struct_generator import checkpoint_status
+
+    checkpoints = checkpoint_status()
+    choice = os.environ.get("CHEMAPP_NMR_GENERATOR", "auto").strip().casefold()
+    if choice not in {"auto", "nmr2struct", "t5"}:
+        choice = "auto"
+    variant = os.environ.get("CHEMAPP_NMR2STRUCT_VARIANT", "auto").strip()
+    nmr2struct_assets_available = (
+        any(checkpoints.values()) if variant == "auto" else checkpoints.get(variant, False)
+    )
+    generation_assets_available = (
+        model_files_available if choice == "t5" else nmr2struct_assets_available
+        if choice == "nmr2struct" else model_files_available or nmr2struct_assets_available
+    )
     return {
         "model_loaded": _model is not None,
         "model_files_available": model_files_available,
@@ -1020,7 +1095,14 @@ def get_status():
             ],
         },
         "experimental_generation": {
-            "available": model_files_available,
+            "available": generation_assets_available,
+            "availability_scope": "checkpoint_assets_only",
+            "input_compatibility_required": True,
+            "runtime_verified": False,
+            "configured_generator": choice,
+            "configured_nmr2struct_variant": variant,
+            "t5_checkpoint_available": model_files_available,
+            "nmr2struct_checkpoints": checkpoints,
             "enabled_by_default": False,
             "role": "opt-in hypothesis generation only; excluded from formal ranking",
         },
@@ -1370,8 +1452,36 @@ def ranker_train_status(job_id: str):
     return job
 
 
+def _continuous_proton_spectrum(spectrum: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Use current processed ppm arrays, never an FID/time/Hz source axis.
+
+    Original-source metadata can legitimately say "time" after Fourier
+    processing; the stored current axis unit is the relevant domain here.
+    """
+    if str(spectrum.x_unit).strip().casefold() != "ppm":
+        raise HTTPException(status_code=422, detail="spectrum_1h_id requires a processed ppm spectrum")
+    try:
+        x = np.asarray(spectrum.x_data, dtype=float)
+        y = np.asarray(spectrum.y_data, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid continuous 1H spectrum") from exc
+    if (
+        x.ndim != 1 or y.ndim != 1 or x.size != y.size or x.size < 2
+        or not np.all(np.isfinite(x)) or not np.all(np.isfinite(y))
+        or not (np.all(np.diff(x) > 0) or np.all(np.diff(x) < 0))
+        or np.min(x) < -5.0 or np.max(x) > 30.0
+        or not np.any(y > 0)
+    ):
+        raise HTTPException(status_code=422, detail="Invalid continuous 1H spectrum")
+    return x, y
+
+
 @router.post("/predict")
 def predict_structure(request: PredictRequest):
+    return _predict_structure(request)
+
+
+def _predict_structure(request: PredictRequest, *, spectrum_1h_snapshot: Any = None):
     import time
     started = time.time()
     try:
@@ -1406,22 +1516,26 @@ def predict_structure(request: PredictRequest):
 
     formula = formula_info.canonical if formula_info else None
     spectrum_1h = None
+    spectrum_1h_revision = None
     if request.spectrum_1h_id is not None:
         from app.api.deps import get_store
 
-        stored = get_store().get(request.spectrum_1h_id)
+        # Combined requests pass the same atomic store snapshot used for their
+        # analyzed peaks, so concurrent processing cannot mix old peaks/new trace.
+        stored = spectrum_1h_snapshot if spectrum_1h_snapshot is not None else get_store().get(request.spectrum_1h_id)
         if stored is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"Spectrum not found: {request.spectrum_1h_id}",
             )
-        nucleus = str(stored.spectrum.parameters.get("nucleus") or "")
-        if stored.spectrum.technique != Technique.NMR or not nucleus.startswith("1H"):
+        nucleus = str(stored.spectrum.parameters.get("nucleus") or "").strip()
+        if stored.spectrum.technique != Technique.NMR or nucleus != "1H":
             raise HTTPException(
                 status_code=422,
                 detail=f"spectrum_1h_id must reference a 1H NMR spectrum: {request.spectrum_1h_id}",
             )
-        spectrum_1h = (stored.spectrum.x_data, stored.spectrum.y_data)
+        spectrum_1h = _continuous_proton_spectrum(stored.spectrum)
+        spectrum_1h_revision = getattr(stored, "spectrum_revision", None)
     if request.generate_experimental:
         generation_count = min(max(request.top_k, 5), request.num_beams)
         generated = _dispatch_generation(
@@ -1524,7 +1638,7 @@ def predict_structure(request: PredictRequest):
         "literature_basis": [
             "Candidate generation and database retrieval must be verified by forward spectrum prediction and independent NMR evidence.",
             "Molecular formula is enforced as a hard constraint when supplied.",
-            "Optional T5 outputs are experimental hypotheses only and do not change retrieval ranking.",
+            "Optional generated structures are experimental hypotheses only and do not change retrieval ranking.",
         ],
         "candidates": ranked["candidates"],
         "generated_candidates": generated.get("candidates", []),
@@ -1537,8 +1651,10 @@ def predict_structure(request: PredictRequest):
         "query": {
             **ranked["query"],
             "preprocessing": {"13c": p13_audit, "1h": p1h_audit},
+            "spectrum_1h_id": request.spectrum_1h_id,
+            "spectrum_1h_revision": spectrum_1h_revision,
         },
-        "warnings": [*preprocessing_warnings, *ranked.get("warnings", [])],
+        "warnings": [*preprocessing_warnings, *ranked.get("warnings", []), *generated.get("input_warnings", [])],
         "candidate_pool_status": ranked["candidate_pool_status"],
         "ranker": ranked["ranker"],
         "forward_model": forward_model,
@@ -1557,66 +1673,81 @@ def predict_structure_combined(request: CombinedPredictRequest):
     p1h: list[PeakInput] = []
     solvent = ""
     seen_nuclei: set[str] = set()
+    spectrum_1h_id = None
+    spectrum_1h_snapshot = None
 
-    for sid in (request.id1, request.id2):
-        s = store.get(sid)
-        if s is None:
-            raise HTTPException(status_code=404, detail=f"Spectrum not found: {sid}")
-        if s.spectrum.technique != Technique.NMR:
-            raise HTTPException(status_code=422, detail=f"Spectrum is not NMR: {sid}")
-        if s.result is None:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Analyze spectrum before combined prediction: {sid}",
-            )
-        nucleus = s.spectrum.parameters.get("nucleus", "")
-        nucleus = "13C" if nucleus == "13C" else "1H"
-        if nucleus in seen_nuclei:
-            raise HTTPException(
-                status_code=422,
-                detail="Combined prediction requires one 1H and one 13C spectrum",
-            )
-        seen_nuclei.add(nucleus)
-        solvent = solvent or s.spectrum.metadata.solvent
-        if nucleus == "1H" and getattr(s.result, "multiplets", None):
-            p1h = [
-                PeakInput(
-                    shift=float(item["center_ppm"]),
-                    intensity=float(item.get("intensity_max") or 1.0),
-                    integral=item.get("relative_area"),
-                    multiplicity=item.get("multiplicity", ""),
-                    assignment=item.get("assignment", ""),
+    try:
+        for sid in (request.id1, request.id2):
+            s = store.get(sid)
+            if s is None:
+                raise HTTPException(status_code=404, detail=f"Spectrum not found: {sid}")
+            if s.spectrum.technique != Technique.NMR:
+                raise HTTPException(status_code=422, detail=f"Spectrum is not NMR: {sid}")
+            if s.result is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Analyze spectrum before combined prediction: {sid}",
                 )
-                for item in s.result.multiplets
-                if item.get("center_ppm") is not None
-            ]
-        else:
-            peaks = [
-                PeakInput(
-                    shift=float(peak.position),
-                    intensity=float(peak.intensity),
-                    integral=peak.area,
-                    multiplicity=peak.multiplicity,
-                    assignment=peak.assignment,
+            nucleus = str(s.spectrum.parameters.get("nucleus") or "").strip()
+            if nucleus not in {"1H", "13C"}:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Combined prediction requires identified 1H and 13C nuclei",
                 )
-                for peak in s.result.peaks
-            ]
-            if nucleus == "13C":
-                p13 = peaks
+            if str(s.spectrum.x_unit).strip().casefold() != "ppm":
+                raise HTTPException(status_code=422, detail="Combined prediction requires processed ppm spectra")
+            if nucleus == "1H":
+                spectrum_1h_id = sid
+                spectrum_1h_snapshot = s
+            if nucleus in seen_nuclei:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Combined prediction requires one 1H and one 13C spectrum",
+                )
+            seen_nuclei.add(nucleus)
+            solvent = solvent or s.spectrum.metadata.solvent
+            if nucleus == "1H" and getattr(s.result, "multiplets", None):
+                p1h = [
+                    PeakInput(
+                        shift=float(item["center_ppm"]),
+                        intensity=float(item.get("intensity_max") or 1.0),
+                        integral=item.get("relative_area"),
+                        multiplicity=item.get("multiplicity", ""),
+                        assignment=item.get("assignment", ""),
+                    )
+                    for item in s.result.multiplets
+                    if item.get("center_ppm") is not None
+                ]
             else:
-                p1h = peaks
+                peaks = [
+                    PeakInput(
+                        shift=float(peak.position),
+                        intensity=float(peak.intensity),
+                        integral=peak.area,
+                        multiplicity=peak.multiplicity,
+                        assignment=peak.assignment,
+                    )
+                    for peak in s.result.peaks
+                ]
+                if nucleus == "13C":
+                    p13 = peaks
+                else:
+                    p1h = peaks
 
-    request2 = PredictRequest(
-        peaks_13c=p13,
-        peaks_1h=p1h,
-        formula=request.formula,
-        generate_experimental=request.generate_experimental,
-        candidate_smiles=request.candidate_smiles,
-        required_smarts=request.required_smarts,
-        forbidden_smarts=request.forbidden_smarts,
-        solvent=solvent or None,
-        cluster_1h_lines=False,
-        top_k=request.top_k,
-        num_beams=request.num_beams,
-    )
-    return predict_structure(request2)
+        request2 = PredictRequest(
+            peaks_13c=p13,
+            peaks_1h=p1h,
+            spectrum_1h_id=spectrum_1h_id,
+            formula=request.formula,
+            generate_experimental=request.generate_experimental,
+            candidate_smiles=request.candidate_smiles,
+            required_smarts=request.required_smarts,
+            forbidden_smarts=request.forbidden_smarts,
+            solvent=solvent or None,
+            cluster_1h_lines=False,
+            top_k=request.top_k,
+            num_beams=request.num_beams,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Invalid stored NMR peak evidence") from exc
+    return _predict_structure(request2, spectrum_1h_snapshot=spectrum_1h_snapshot)
