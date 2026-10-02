@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import warnings
 from pathlib import Path
 from typing import Any
@@ -226,6 +227,109 @@ def _select_raw_nmr_block(raw_dictionary: dict[str, Any]) -> tuple[str, dict[str
     raise ValueError("JCAMP-DX has no supported NMR data block")
 
 
+def _check_numeric_budget(count: int) -> None:
+    if count > _MAX_JCAMP_NUMERIC_VALUES:
+        raise ValueError("NMR JCAMP-DX numeric payload exceeds the safety limit")
+
+
+def _table_numeric_count(table: str) -> int:
+    """Count nmrglue 0.11 table output without expanding any DUP tokens.
+
+    Keep the pending-token/checkpoint semantics of the pinned decoder: a DUP
+    replaces the pending token with N copies, rather than adding N extra copies.
+    No global decoder hooks are changed, so concurrent uploads stay isolated.
+    """
+
+    lines = table.split("\n")[1:]
+    if not lines or not lines[0].strip():
+        raise ValueError("NMR JCAMP-DX table contains no data rows")
+    try:
+        mode = ng.fileio.jcampdx._detect_format(lines[0])
+    except (AttributeError, IndexError) as exc:
+        raise ValueError("NMR JCAMP-DX table contains an invalid data row") from exc
+    count = 0
+    if mode == 0:
+        numbers = re.compile(r"(\s|,)*([+-]?\d+\.?\d*|[+-]?\.\d+)([eE][+-]?\d+)?")
+        for line in lines:
+            count += max(sum(1 for _ in numbers.finditer(line)) - 1, 0)
+            _check_numeric_budget(count)
+        return count
+    if mode != 1:
+        raise ValueError("NMR JCAMP-DX table contains an unsupported numeric format")
+
+    decoder = ng.fileio.jcampdx
+    anchor = re.compile(r"(\s)*([+-]?\d+\.?\d*|[+-]?\.\d+)")
+    pending: bool | None = None
+    current_mode = 0
+    digits: list[str] = []
+    skip_checkpoint = False
+
+    def finish() -> None:
+        nonlocal count, pending
+        if current_mode in (1, 2):
+            float("".join(digits))  # Match the decoder's numeric syntax.
+            count += int(pending is not None)
+            pending = current_mode == 2
+        elif current_mode == 3:
+            if pending is None:
+                raise ValueError("NMR JCAMP-DX DUP entry has no preceding value")
+            token = "".join(digits).lstrip("0") or "0"
+            if not token.isdecimal():
+                raise ValueError("NMR JCAMP-DX DUP count must be a positive integer")
+            if len(token) > len(str(_MAX_JCAMP_NUMERIC_VALUES)):
+                raise ValueError("NMR JCAMP-DX numeric payload exceeds the safety limit")
+            repeats = int(token)
+            if repeats < 1:
+                raise ValueError("NMR JCAMP-DX DUP count must be a positive integer")
+            count += repeats
+            pending = None
+        _check_numeric_budget(count)
+
+    for line in lines:
+        if not line:
+            continue
+        match = anchor.match(line)
+        if match is None:
+            raise ValueError("NMR JCAMP-DX table contains an invalid X anchor")
+        first_of_line = True
+        for char in line[match.end():].strip():
+            if char in decoder._DIGITS:
+                digits.append(char)
+                continue
+            if char in decoder._SQZ_DIGITS:
+                digit, next_mode = decoder._SQZ_DIGITS[char], 1
+            elif char in decoder._DIF_DIGITS:
+                digit, next_mode = decoder._DIF_DIGITS[char], 2
+            elif char in decoder._DUP_DIGITS:
+                digit, next_mode = decoder._DUP_DIGITS[char], 3
+            else:
+                raise ValueError("NMR JCAMP-DX table contains an invalid pseudo-digit")
+            previous_is_dif = current_mode == 2 or (current_mode == 3 and pending is True)
+            if not skip_checkpoint:
+                finish()
+            skip_checkpoint = first_of_line and previous_is_dif
+            current_mode = next_mode
+            digits = [digit]
+            first_of_line = False
+    if not skip_checkpoint:
+        finish()
+    count += int(pending is not None)
+    _check_numeric_budget(count)
+    return count
+
+
+def _validate_raw_numeric_budget(raw_dictionary: dict[str, Any]) -> None:
+    # read() may fall back to later spectrum/FID/untyped blocks, and NTUPLES
+    # parses every real/imaginary page even if only its first array is returned.
+    total = 0
+    for blocks in raw_dictionary.values():
+        for block in blocks:
+            for key in ("XYDATA", "DATATABLE"):
+                for table in block.get(key, []):
+                    total += _table_numeric_count(table)
+                    _check_numeric_budget(total)
+
+
 def _decode_nd_numeric(
     block: dict[str, Any],
 ) -> tuple[dict[str, np.ndarray], list[int]]:
@@ -284,6 +388,7 @@ def _decode_jcamp_numeric(
         raw_dictionary = ng.fileio.jcampdx._readrawdic(  # pinned nmrglue 0.11
             str(path)
         )
+        _validate_raw_numeric_budget(raw_dictionary)
         raw_datatype, raw_block = _select_raw_nmr_block(raw_dictionary)
         if raw_datatype == "NDNMRSPECTRUM":
             dictionary = raw_block

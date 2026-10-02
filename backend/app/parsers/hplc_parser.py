@@ -16,6 +16,8 @@ CHANNEL_COLORS = ["#06b6d4", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6"]
 _MAX_XML_BYTES = int(os.environ.get("CHEMAPP_HPLC_MAX_XML_BYTES", str(20 * 1024 * 1024)))
 _MAX_TRACE_BYTES = int(os.environ.get("CHEMAPP_HPLC_MAX_TRACE_BYTES", str(128 * 1024 * 1024)))
 _MAX_COMPRESSION_RATIO = float(os.environ.get("CHEMAPP_MAX_ZIP_COMPRESSION_RATIO", "200"))
+_MAX_HPLC_CHANNELS = 64
+_MAX_HPLC_TOTAL_POINTS = 16_000_000
 
 
 class HPLCParser(BaseParser):
@@ -72,6 +74,19 @@ class HPLCParser(BaseParser):
         with zipfile.ZipFile(str(p)) as zf:
             signals = self._parse_acmd(zf)
             chrom_signals = [s for s in signals if s.get("IsIntegrable", False)]
+            # Per-member ZIP limits cannot bound repeated references to one
+            # trace. Budget the retained arrays across the whole sample before
+            # reading any chromatograms, including duplicate trace references.
+            if len(chrom_signals) > _MAX_HPLC_CHANNELS:
+                raise ValueError("HPLC integrable channel count exceeds the safety limit")
+            total_points = 0
+            for sig in chrom_signals:
+                points = sig.get("NumberOfValues", 0)
+                if points < 1:
+                    raise ValueError("HPLC channel point count must be positive")
+                total_points += points
+                if total_points > _MAX_HPLC_TOTAL_POINTS:
+                    raise ValueError("HPLC aggregate decoded points exceed the safety limit")
             signal_results = self._parse_instrument_results(p)
 
             channels_data = []
@@ -178,7 +193,7 @@ class HPLCParser(BaseParser):
         if not rx_path or not rx_path.exists() or not zipfile.is_zipfile(str(rx_path)):
             return {}
 
-        acaml_path = dx_path.with_suffix(".acaml")
+        acaml_path = cls._matching_sidecar(dx_path, ".acaml")
         signal_map = cls._parse_signal_map(acaml_path)
         try:
             with zipfile.ZipFile(str(rx_path)) as zf:
@@ -227,16 +242,27 @@ class HPLCParser(BaseParser):
         return channel_peaks
 
     @staticmethod
-    def _sibling_result_file(dx_path: Path) -> Path | None:
-        exact = dx_path.with_suffix(".rx")
-        if exact.exists():
+    def _matching_sidecar(dx_path: Path, suffix: str) -> Path | None:
+        exact = dx_path.with_suffix(suffix)
+        if exact.is_file():
             return exact
-        matches = sorted(dx_path.parent.glob("*.rx"))
-        return matches[0] if matches else exact
+        matches = [
+            path for path in dx_path.parent.iterdir()
+            if path.is_file()
+            and path.stem.casefold() == dx_path.stem.casefold()
+            and path.suffix.casefold() == suffix.casefold()
+        ]
+        # Never associate another run's results, or choose among ambiguous
+        # case variants on a case-sensitive filesystem.
+        return matches[0] if len(matches) == 1 else None
 
     @classmethod
-    def _parse_signal_map(cls, acaml_path: Path) -> dict[str, dict[str, str]]:
-        if not acaml_path.exists():
+    def _sibling_result_file(cls, dx_path: Path) -> Path | None:
+        return cls._matching_sidecar(dx_path, ".rx")
+
+    @classmethod
+    def _parse_signal_map(cls, acaml_path: Path | None) -> dict[str, dict[str, str]]:
+        if acaml_path is None or not acaml_path.exists():
             return {}
         try:
             if acaml_path.stat().st_size > _MAX_XML_BYTES:

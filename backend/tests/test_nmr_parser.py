@@ -57,6 +57,43 @@ def test_parse_rejects_oversized_bruker_binary(tmp_path, monkeypatch):
         NMRSpectrumParser().parse(exp_dir)
 
 
+@pytest.mark.parametrize(
+    ("td", "si", "field"),
+    [
+        ("65536", "1000000000000", "SI"),
+        ("1000000000000", None, "TD"),
+        ("1000000000000", "8", "TD"),
+        ("65536", "inf", "SI"),
+        ("nan", "8", "TD"),
+        ("65536", "8.5", "SI"),
+        ("-2", "8", "TD"),
+    ],
+)
+def test_parse_rejects_unsafe_dimensions_before_allocation(tmp_path, monkeypatch, td, si, field):
+    exp_dir = tmp_path / "exp"
+    exp_dir.mkdir()
+    (exp_dir / "acqu").write_text(f"##$TD= {td}\n", encoding="utf-8")
+    (exp_dir / "fid").write_bytes(b"\x00" * 8)
+    if si is not None:
+        processed = exp_dir / "pdata" / "1"
+        processed.mkdir(parents=True)
+        (processed / "procs").write_text(f"##$SI= {si}\n", encoding="utf-8")
+
+    def unexpected_allocation(*args, **kwargs):
+        pytest.fail("Dimension validation must happen before allocating the spectrum axis")
+
+    monkeypatch.setattr("app.parsers.nmr_parser.np.arange", unexpected_allocation)
+    with pytest.raises(ValueError, match=f"Bruker {field}"):
+        NMRSpectrumParser().parse(exp_dir)
+
+
+def test_bruker_point_count_accepts_limit_and_scientific_notation():
+    from app.parsers.nmr_parser import _point_count
+
+    assert _point_count({"SI": "1.6e7"}, "SI", 65536, 16_000_000) == 16_000_000
+    assert _point_count({}, "SI", 65536, 16_000_000) == 65536
+
+
 def test_to_dict_roundtrip():
     parser = NMRSpectrumParser()
     spectrum = parser.parse(DATA_DIR)

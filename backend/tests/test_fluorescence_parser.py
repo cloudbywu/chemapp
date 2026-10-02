@@ -160,6 +160,61 @@ def test_parse_rejects_oversized_file(tmp_path, monkeypatch):
         FluorescenceParser().parse(big)
 
 
+def test_rejects_huge_dup_before_expanding(tmp_path, monkeypatch):
+    path = _write_dx(tmp_path, _dx_lines(
+        ["400A0S000000000"],
+        extra_labels=["##DELTAX= 1"],
+    ))
+
+    def unexpected_append(*args, **kwargs):
+        pytest.fail("The DUP token must be bounded before any expansion")
+
+    monkeypatch.setattr("app.parsers.fluorescence_parser._append_decoded", unexpected_append)
+    with pytest.raises(ValueError, match="safety limit"):
+        FluorescenceParser().parse(path)
+
+
+@pytest.mark.parametrize("token", ["S.5", "S" + "0" * 309])
+def test_rejects_non_integer_or_non_finite_dup_count(tmp_path, token):
+    path = _write_dx(tmp_path, _dx_lines(
+        [f"400A0{token}"],
+        extra_labels=["##DELTAX= 1"],
+    ))
+    with pytest.raises(ValueError, match="finite positive integer"):
+        FluorescenceParser().parse(path)
+
+
+@pytest.mark.parametrize("rows", [
+    ["400A0T", "402A0T"],
+    ["400A0A0A0A0"],
+    ["400 1 2", "402 3 4"],
+])
+def test_enforces_total_decoded_point_limit(tmp_path, monkeypatch, rows):
+    monkeypatch.setattr("app.parsers.fluorescence_parser._MAX_DX_POINTS", 3)
+    path = _write_dx(tmp_path, _dx_lines(rows, extra_labels=["##DELTAX= 1"]))
+    with pytest.raises(ValueError, match="safety limit"):
+        FluorescenceParser().parse(path)
+
+
+def test_peak_table_enforces_decoded_point_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.parsers.fluorescence_parser._MAX_DX_POINTS", 2)
+    path = _write_dx(tmp_path, [
+        "##TITLE= synth", "##JCAMP-DX= 4.24", "##DATA TYPE= FL SPECTRUM",
+        "##PEAK TABLE= (XY..XY)", "400 1", "401 2", "402 3", "##END=",
+    ])
+    with pytest.raises(ValueError, match="safety limit"):
+        FluorescenceParser().parse(path)
+
+
+@pytest.mark.parametrize("rows", [["400A0U"], ["400 10 10 10"]])
+def test_accepts_exact_decoded_point_limit(tmp_path, monkeypatch, rows):
+    monkeypatch.setattr("app.parsers.fluorescence_parser._MAX_DX_POINTS", 3)
+    path = _write_dx(tmp_path, _dx_lines(rows, extra_labels=["##DELTAX= 1"]))
+    spectrum = FluorescenceParser().parse(path)
+    assert list(spectrum.y_data) == [10.0, 10.0, 10.0]
+    assert list(spectrum.x_data) == [400.0, 401.0, 402.0]
+
+
 def test_to_dict_roundtrip():
     parser = FluorescenceParser()
     spectrum = parser.parse(DATA_DIR / "em-lao(FDS).DX")

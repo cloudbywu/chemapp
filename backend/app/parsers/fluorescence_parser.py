@@ -10,6 +10,7 @@ from app.parsers.base import BaseParser
 
 # Same safety limit as the NMR JCAMP-DX reader: refuse oversized text files.
 _MAX_DX_FILE_BYTES = 64 * 1024 * 1024
+_MAX_DX_POINTS = 16_000_000
 
 # JCAMP-DX pseudo-digit tables (mirrors the pinned nmrglue decoder).
 _DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "."]
@@ -82,7 +83,13 @@ def _contains_pseudodigits(lines: list[str]) -> bool:
     return False
 
 
+def _check_point_count(count: int) -> None:
+    if count > _MAX_DX_POINTS:
+        raise ValueError("Fluorescence JCAMP-DX decoded points exceed the safety limit.")
+
+
 def _append_decoded(values: list[float], pending: tuple[float, bool]) -> None:
+    _check_point_count(len(values) + 1)
     value, is_dif = pending
     if is_dif:
         if not values:
@@ -115,7 +122,13 @@ def _finish_number(
     # mode == 3: DUP — repeat the preceding value/difference count times.
     if pending is None:
         raise ValueError("JCAMP-DX DUP entry has no preceding value.")
-    for _ in range(int(value)):
+    if not np.isfinite(value) or not value.is_integer() or value < 1:
+        raise ValueError("JCAMP-DX DUP count must be a finite positive integer.")
+    repeat_count = int(value)
+    # Reject before expanding the token. Even a few input bytes can encode
+    # billions of repeated points, independently of the file-size limit.
+    _check_point_count(len(values) + repeat_count)
+    for _ in range(repeat_count):
         _append_decoded(values, pending)
     return None
 
@@ -186,23 +199,19 @@ def _parse_xydata_table(lines: list[str], delta_x: float | None) -> tuple[list[f
         x_vals = [first_x + index * delta_x for index in range(len(y_vals))]
         return x_vals, y_vals
 
-    rows: list[tuple[float, list[float]]] = []
+    x_vals: list[float] = []
+    y_vals: list[float] = []
     for line in lines:
         stripped = line.strip()
         if not stripped:
             continue
         tokens = stripped.replace(",", " ").split()
+        _check_point_count(len(y_vals) + max(len(tokens) - 1, 0))
         try:
             x_value = float(tokens[0])
             y_values = [float(token) for token in tokens[1:]]
         except (ValueError, IndexError):
             continue
-        if y_values:
-            rows.append((x_value, y_values))
-
-    x_vals: list[float] = []
-    y_vals: list[float] = []
-    for x_value, y_values in rows:
         if len(y_values) > 1 and delta_x is None:
             raise ValueError(
                 "JCAMP-DX X++(Y..Y) table holds multiple Y values per row "
@@ -223,11 +232,13 @@ def _parse_peak_table(lines: list[str]) -> tuple[list[float], list[float]]:
         if len(parts) < 2:
             continue
         try:
-            float(parts[0])
-            x_vals.append(float(parts[0]))
-            y_vals.append(float(parts[1]))
+            x_value = float(parts[0])
+            y_value = float(parts[1])
         except ValueError:
             continue
+        _check_point_count(len(y_vals) + 1)
+        x_vals.append(x_value)
+        y_vals.append(y_value)
     return x_vals, y_vals
 
 

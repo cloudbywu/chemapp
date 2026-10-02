@@ -12,6 +12,7 @@ import anyio
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from app.api.deps import get_store
+from app.core.models import Spectrum
 from app.parsers import ParserRegistry
 
 router = APIRouter(prefix="/api/upload", tags=["upload"])
@@ -156,8 +157,7 @@ def _find_hplc_bundle_files(extract_dir: Path) -> list[Path]:
     return sorted(candidates, key=lambda item: str(item).casefold())
 
 
-def _parse_and_store(file_path: str | Path, source_name: str | None = None) -> list[dict]:
-    store = get_store()
+def _parse_spectra(file_path: str | Path, source_name: str | None = None) -> list[Spectrum]:
     technique_name = ParserRegistry.detect(str(file_path))
     if technique_name is None:
         raise HTTPException(400, f"Unrecognized file format: {Path(file_path).name}")
@@ -166,33 +166,45 @@ def _parse_and_store(file_path: str | Path, source_name: str | None = None) -> l
     parser = parser_cls()
     result = parser.parse(str(file_path))
 
-    if isinstance(result, list):
-        results = []
-        for spectrum in result:
-            if source_name:
-                spectrum.source_file = source_name
-            stored = store.add(spectrum)
-            results.append({
-                "id": stored.id,
-                "technique": spectrum.technique.value,
-                "points": spectrum.num_points,
-                "summary": repr(spectrum),
-                "spectrum_revision": stored.spectrum_revision,
-                "result_revision": stored.result_revision,
-            })
-        return results
+    spectra = result if isinstance(result, list) else [result]
+    for spectrum in spectra:
+        if source_name:
+            spectrum.source_file = source_name
+    return spectra
 
-    if source_name:
-        result.source_file = source_name
-    stored = store.add(result)
-    return [{
-        "id": stored.id,
-        "technique": result.technique.value,
-        "points": result.num_points,
-        "summary": repr(result),
-        "spectrum_revision": stored.spectrum_revision,
-        "result_revision": stored.result_revision,
-    }]
+
+def _store_spectra(spectra: list[Spectrum]) -> list[dict]:
+    # Prepare the response before committing, so even invalid parsed metadata
+    # cannot turn a successful write into an apparent failed upload.
+    results = [
+        {
+            "technique": spectrum.technique.value,
+            "points": spectrum.num_points,
+            "summary": repr(spectrum),
+        }
+        for spectrum in spectra
+    ]
+    for result, stored in zip(results, get_store().add_many(spectra)):
+        result.update({
+            "id": stored.id,
+            "spectrum_revision": stored.spectrum_revision,
+            "result_revision": stored.result_revision,
+        })
+    return results
+
+
+def _parse_and_store(file_path: str | Path, source_name: str | None = None) -> list[dict]:
+    return _store_spectra(_parse_spectra(file_path, source_name))
+
+
+def _parse_hplc_bundle_and_store(
+    files: list[Path], extract_path: Path, source_name: str
+) -> list[dict]:
+    spectra: list[Spectrum] = []
+    for path in files:
+        relative_name = path.relative_to(extract_path).as_posix()
+        spectra.extend(_parse_spectra(path, f"{source_name}:{relative_name}"))
+    return _store_spectra(spectra)
 
 
 @router.post("")
@@ -242,20 +254,14 @@ async def upload_file(file: UploadFile = File(...)):
                             )
                         )
                     else:
-                        results = []
-                        for hplc_file in hplc_files:
-                            relative_name = hplc_file.relative_to(
-                                extract_path
-                            ).as_posix()
-                            results.extend(
-                                await anyio.to_thread.run_sync(
-                                    partial(
-                                        _parse_and_store,
-                                        hplc_file,
-                                        source_name=f"{file.filename}:{relative_name}",
-                                    )
-                                )
+                        results = await anyio.to_thread.run_sync(
+                            partial(
+                                _parse_hplc_bundle_and_store,
+                                hplc_files,
+                                extract_path,
+                                file.filename,
                             )
+                        )
                     for r in results:
                         r["name"] = file.filename
                     return results[0] if len(results) == 1 else results

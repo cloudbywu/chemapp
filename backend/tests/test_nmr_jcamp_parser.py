@@ -113,6 +113,61 @@ def test_numeric_inspection_preserves_2d_shape_and_parser_refuses_flattening(
         NMRJCAMPParser().parse(path)
 
 
+@pytest.mark.parametrize("datatype", ["NMR SPECTRUM", "NMR FID"])
+def test_rejects_huge_dup_before_nmrglue_decode(tmp_path, monkeypatch, datatype):
+    path = tmp_path / "bomb.jdx"
+    path.write_text(
+        _ONE_DIMENSIONAL.replace("NMR SPECTRUM", datatype).replace(
+            "10 0 1 0 -1 3 0 1 0", "10A0S000000000"
+        ),
+        encoding="utf-8",
+    )
+
+    def unexpected_decode(*args, **kwargs):
+        pytest.fail("Compressed point limits must be checked before numeric decoding")
+
+    monkeypatch.setattr("app.parsers.nmr_jcamp_parser.ng.jcampdx.read", unexpected_decode)
+    with pytest.raises(ValueError, match="safety limit"):
+        NMRJCAMPParser().parse(path)
+
+
+def test_rejects_cumulative_nd_page_budget_before_decoding(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.parsers.nmr_jcamp_parser._MAX_JCAMP_NUMERIC_VALUES", 5)
+    path = tmp_path / "pages.jdx"
+    path.write_text(_TWO_DIMENSIONAL, encoding="utf-8")
+
+    def unexpected_decode(*args, **kwargs):
+        pytest.fail("All pages must fit the budget before the first page is decoded")
+
+    monkeypatch.setattr("app.parsers.nmr_jcamp_parser.ng.fileio.jcampdx._parse_data", unexpected_decode)
+    inspection = inspect_jcamp_numeric(path)
+    assert inspection["numeric_payload_decoded"] is False
+    assert "safety limit" in inspection["unsupported_reason"]
+
+
+@pytest.mark.parametrize("rows", [
+    "400A0U",
+    "400A0KK\n403OO%T\n406%n",
+    "400 1 2 3\n403 4 5",
+    "400+1+2-3\n403+4+5",
+])
+def test_preflight_counts_match_pinned_decoder_at_exact_limit(monkeypatch, rows):
+    from app.parsers.nmr_jcamp_parser import _table_numeric_count, ng
+
+    table = "(X++(Y..Y))\n" + rows
+    decoded, _ = ng.fileio.jcampdx._parse_data(table)
+    monkeypatch.setattr("app.parsers.nmr_jcamp_parser._MAX_JCAMP_NUMERIC_VALUES", len(decoded))
+    assert _table_numeric_count(table) == len(decoded)
+
+
+def test_one_dimensional_point_budget_is_checked_before_decode(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.parsers.nmr_jcamp_parser._MAX_JCAMP_NUMERIC_VALUES", 7)
+    path = tmp_path / "spectrum.jdx"
+    path.write_text(_ONE_DIMENSIONAL, encoding="utf-8")
+    with pytest.raises(ValueError, match="safety limit"):
+        NMRJCAMPParser().parse(path)
+
+
 @pytest.mark.skipif(
     not (EXTERNAL_ROOT / "4.zip").exists(),
     reason="fixed external smoke dataset has not been fetched",

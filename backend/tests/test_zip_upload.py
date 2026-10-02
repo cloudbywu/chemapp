@@ -83,6 +83,39 @@ def test_hplc_bundle_zip_upload_preserves_result_sidecars(tmp_path, monkeypatch)
         assert analysis.json()["metrics"]["channel_peaks"]["DAD1A"]["peaks"]
 
 
+@pytest.mark.parametrize("broken_second", [False, True])
+def test_hplc_bundle_upload_is_atomic(tmp_path, monkeypatch, broken_second):
+    monkeypatch.setenv("CHEMAPP_DB_PATH", str(tmp_path / "chemapp.db"))
+    store_module._store = None
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "dataexample" / "液相色谱example" / "-S-001.sirslt"
+    )
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for directory in ("a-valid", "z-second"):
+            for suffix in (".dx", ".rx", ".acaml"):
+                path = source / f"-S-001{suffix}"
+                member = f"{directory}/{path.name}"
+                if broken_second and directory == "z-second" and suffix == ".dx":
+                    zf.writestr(member, b"malformed instrument data")
+                else:
+                    zf.write(path, member)
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/upload",
+            files={"file": ("hplc-bundle.zip", archive.getvalue(), "application/zip")},
+        )
+    if broken_second:
+        assert response.status_code == 400, response.text
+        assert store_module.get_store().count() == 0
+    else:
+        assert response.status_code == 200, response.text
+        assert len(response.json()) == 2
+        assert store_module.get_store().count() == 2
+
+
 def test_find_nmr_dir_accepts_acqu_only_fallback(tmp_path):
     # Loose parsing behaviour is intentional: an acqu-only Bruker folder
     # still qualifies (fid optional).

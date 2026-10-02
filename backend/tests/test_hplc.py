@@ -1,4 +1,5 @@
 from pathlib import Path
+import shutil
 from zipfile import ZipFile
 import xml.etree.ElementTree as ET
 
@@ -68,6 +69,25 @@ def _parse_report_peak_tables(path: Path) -> dict[str, list[dict]]:
 def test_can_parse():
     assert HPLCParser.can_parse(DATA_DIR / "-S-001.sirslt" / "-S-001.dx") is True
     assert HPLCParser.can_parse(DATA_DIR / "-S-001.sirslt" / "-S-001.acaml") is False
+
+
+def test_missing_matching_result_never_borrows_another_run(tmp_path):
+    source = DATA_DIR / "-S-001.sirslt"
+    for suffix in (".dx", ".acaml"):
+        shutil.copy(source / f"-S-001{suffix}", tmp_path / f"run-a{suffix}")
+    shutil.copy(source / "-S-001.rx", tmp_path / "other-run.rx")
+    spectrum = HPLCParser().parse(tmp_path / "run-a.dx")
+    assert spectrum.parameters["instrument_result_source"] == ""
+    assert all(not channel["instrument_peaks"] for channel in spectrum.parameters["channels"])
+
+
+def test_case_insensitive_same_stem_sidecars_preserve_instrument_peaks(tmp_path):
+    source = DATA_DIR / "-S-001.sirslt"
+    for original, target in ((".dx", "Run.dx"), (".rx", "RUN.RX"), (".acaml", "run.ACAML")):
+        shutil.copy(source / f"-S-001{original}", tmp_path / target)
+    spectrum = HPLCParser().parse(tmp_path / "Run.dx")
+    assert Path(spectrum.parameters["instrument_result_source"]).name == "RUN.RX"
+    assert any(channel["instrument_peaks"] for channel in spectrum.parameters["channels"])
 
 
 def test_parse():
@@ -222,6 +242,70 @@ def test_time_axis_follows_primary_channel_signal(tmp_path):
     assert spectrum.x_range == (2.0, 8.0)  # linspace(120000, 480000, 4) / 60000
     assert spectrum.parameters["time_start_ms"] == 120000.0
     assert spectrum.parameters["time_end_ms"] == 480000.0
+
+
+@pytest.mark.parametrize("repeat_trace", [False, True])
+def test_aggregate_point_budget_precedes_trace_decoding(tmp_path, monkeypatch, repeat_trace):
+    monkeypatch.setattr("app.parsers.hplc_parser._MAX_HPLC_TOTAL_POINTS", 7)
+    second_trace = "TRACE1" if repeat_trace else "TRACE2"
+    path = _build_dx(
+        tmp_path,
+        [
+            _acmd_signal("TRACE1", "DAD1A", 0, 600000, 4),
+            _acmd_signal(second_trace, "DAD1B", 0, 600000, 4),
+        ],
+        {"TRACE1": [1.0, 2.0, 3.0, 4.0], "TRACE2": [4.0, 3.0, 2.0, 1.0]},
+    )
+
+    def unexpected_decode(*args, **kwargs):
+        pytest.fail("Aggregate limits must be checked before reading the first trace")
+
+    monkeypatch.setattr(HPLCParser, "_read_chromatogram", unexpected_decode)
+    with pytest.raises(ValueError, match="aggregate decoded points.*safety limit"):
+        HPLCParser().parse(path)
+
+
+def test_channel_budget_precedes_trace_decoding(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.parsers.hplc_parser._MAX_HPLC_CHANNELS", 2)
+    path = _build_dx(
+        tmp_path,
+        [_acmd_signal("TRACE1", f"DAD1{index}", 0, 600000, 2) for index in range(3)],
+        {"TRACE1": [1.0, 2.0]},
+    )
+
+    def unexpected_decode(*args, **kwargs):
+        pytest.fail("Channel limits must be checked before reading the first trace")
+
+    monkeypatch.setattr(HPLCParser, "_read_chromatogram", unexpected_decode)
+    with pytest.raises(ValueError, match="channel count.*safety limit"):
+        HPLCParser().parse(path)
+
+
+def test_aggregate_point_and_channel_budget_accept_exact_limits(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.parsers.hplc_parser._MAX_HPLC_CHANNELS", 2)
+    monkeypatch.setattr("app.parsers.hplc_parser._MAX_HPLC_TOTAL_POINTS", 8)
+    path = _build_dx(
+        tmp_path,
+        [_acmd_signal("TRACE1", name, 0, 600000, 4) for name in ("DAD1A", "DAD1B")],
+        {"TRACE1": [1.0, 2.0, 3.0, 4.0]},
+    )
+    spectrum = HPLCParser().parse(path)
+    assert spectrum.num_points == 4
+    assert len(spectrum.parameters["channels"]) == 2
+
+
+def test_negative_point_count_cannot_reduce_aggregate_budget(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.parsers.hplc_parser._MAX_HPLC_TOTAL_POINTS", 4)
+    path = _build_dx(
+        tmp_path,
+        [
+            _acmd_signal("BAD", "DAD1A", 0, 600000, -10),
+            _acmd_signal("GOOD", "DAD1B", 0, 600000, 5),
+        ],
+        {"GOOD": [1.0] * 5},
+    )
+    with pytest.raises(ValueError, match="point count must be positive"):
+        HPLCParser().parse(path)
 
 
 def test_all_signals_malformed_raises(tmp_path):

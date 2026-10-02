@@ -27,6 +27,22 @@ NUCLEUS_MAP = {
     "29Si": NMRNucleus.SI29,
 }
 
+# Bound dimensions before NumPy allocates an axis, padding, or FFT workspace.
+# An archive's byte limits do not constrain its editable SI/TD metadata.
+_MAX_SPECTRUM_POINTS = 16_000_000
+
+
+def _point_count(params: dict[str, str], name: str, default: int, maximum: int) -> int:
+    try:
+        value = float(params.get(name, default))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Bruker {name} must be a finite integer point count") from exc
+    if not np.isfinite(value) or not value.is_integer() or value < 2:
+        raise ValueError(f"Bruker {name} must be a finite integer point count of at least 2")
+    if value > maximum:
+        raise ValueError(f"Bruker {name} exceeds the {maximum} point safety limit")
+    return int(value)
+
 
 def _parse_jcamp_params(text: str) -> dict[str, str]:
     result: dict[str, str] = {}
@@ -181,7 +197,9 @@ class NMRSpectrumParser(BaseParser):
         sfo1 = _float_param(acqu_params, "SFO1", bf1)
         sw_ppm = _float_param(acqu_params, "SW", 20.48)
         sw_h = _float_param(acqu_params, "SW_h", sw_ppm * max(sfo1, 1.0))
-        td = max(2, _int_param(acqu_params, "TD", 65536))
+        # TD counts interleaved real/imaginary acquisition values, while SI
+        # counts processed spectrum points.
+        td = _point_count(acqu_params, "TD", 65536, 2 * _MAX_SPECTRUM_POINTS)
         ns = max(1, _int_param(acqu_params, "NS", 1))
         nucleus_str = acqu_params.get("NUC1", "1H").strip()
         solvent = acqu_params.get("SOLVENT", "")
@@ -197,7 +215,7 @@ class NMRSpectrumParser(BaseParser):
         nucleus = NUCLEUS_MAP.get(nucleus_str, NMRNucleus.H1)
         sf = _float_param(procs_params, "SF", bf1)
         sw_p = _float_param(procs_params, "SW_p", sw_h)
-        si = max(2, _int_param(procs_params, "SI", td // 2))
+        si = _point_count(procs_params, "SI", max(2, td // 2), _MAX_SPECTRUM_POINTS)
         if "O1P" in acqu_params:
             carrier_ppm = _float_param(acqu_params, "O1P", 0.0)
         else:
