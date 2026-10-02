@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { SpectrumListItem } from "../types/spectrum";
 import { loadAISettings } from "../services/aiSettings";
 import { useLang } from "../i18n/LangContext";
+import type { TranslationSchema } from "../i18n/translations";
 import ConfirmDialog from "./ConfirmDialog";
 import SafeMarkdown from "./SafeMarkdown";
 import { chemAppAuthHeaders } from "../services/authTokens";
@@ -65,6 +66,29 @@ function actionSpectrumId(action: AIActionRequest): string | null {
     : displayText(raw);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function undoBlockedMessage(error: unknown, messages: TranslationSchema): string | null {
+  const apiError = asRecord(error);
+  const response = asRecord(apiError?.response);
+  const data = asRecord(response?.data);
+  // ApiError preserves the server detail; also accept an unwrapped Axios error.
+  const detail = asRecord(apiError?.detail ?? data?.detail);
+  if (detail?.code === "result_source_mismatch") {
+    return detail.source_spectrum_revision === null
+      ? messages.manual.historicalSourceUnknown
+      : messages.manual.historicalSourceChanged;
+  }
+  if (detail?.code !== "ai_undo_blocked") return null;
+  if (detail.reason === "later_result_edit") return messages.ai.undoBlockedLaterEdit;
+  if (detail.reason === "unverifiable_history") return messages.ai.undoBlockedHistory;
+  return null;
+}
+
 export async function withExpectedRevision(
   action: AIActionRequest,
 ): Promise<AIActionRequest> {
@@ -112,6 +136,9 @@ export default function AIChatSidebar({
 }: Props) {
   const { t } = useLang();
   const [open, setOpen] = useState(false);
+  const drawerId = useId();
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -150,6 +177,15 @@ export default function AIChatSidebar({
 
   const selectedSpectra = spectra.filter((s) => selectedIds.has(s.id));
   const selectedCount = selectedSpectra.length;
+
+  useEffect(() => {
+    if (open) closeRef.current?.focus();
+  }, [open]);
+
+  const closeDrawer = () => {
+    setOpen(false);
+    toggleRef.current?.focus();
+  };
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -353,7 +389,8 @@ export default function AIChatSidebar({
       }
       return true;
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.ai.actionFailed);
+      setError(undoBlockedMessage(e, t)
+        ?? (e instanceof Error ? e.message : t.ai.actionFailed));
       return false;
     } finally {
       setActionBusy(false);
@@ -394,10 +431,11 @@ export default function AIChatSidebar({
         return;
       }
       setPreview({ action: revisionBoundAction, data: data.preview });
-    } catch {
-      setError(isDestructiveAIAction(action)
-        ? t.ai.revisionRequired
-        : t.ai.actionPreviewFailed);
+    } catch (e: unknown) {
+      setError(undoBlockedMessage(e, t)
+        ?? (isDestructiveAIAction(action)
+          ? t.ai.revisionRequired
+          : t.ai.actionPreviewFailed));
     }
   };
 
@@ -471,20 +509,27 @@ export default function AIChatSidebar({
 
   return (
     <>
-      <button type="button" className="ai-drawer-toggle" onClick={() => setOpen(!open)} aria-expanded={open} aria-label={open ? t.ai.close : t.ai.open}>
+      <button ref={toggleRef} type="button" className="ai-drawer-toggle" onClick={() => open ? closeDrawer() : setOpen(true)} aria-expanded={open} aria-controls={open ? drawerId : undefined} aria-label={open ? t.ai.close : t.ai.open}>
         <span className="ai-drawer-arrow">{open ? "▶" : "◀"}</span>
         <span className="ai-drawer-label">AI</span>
         {selectedCount > 0 && <span className="ai-drawer-badge">{selectedCount}</span>}
       </button>
 
       {open && (
-        <aside className="ai-drawer">
+        <aside id={drawerId} className="ai-drawer" aria-label={t.ai.assistant} onKeyDown={(event) => {
+          if (event.key === "Escape" && !event.defaultPrevented && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeDrawer();
+          }
+        }}>
           <div className="ai-drawer-header">
             <h3>{t.ai.assistant}</h3>
             <button type="button" className="ai-new-chat-btn" onClick={newConversation} title={t.ai.newChat} aria-label={t.ai.newChat}>+</button>
             <span className="ai-drawer-subtitle">
               {selectedCount > 0 ? `${selectedCount}/${spectra.length}` : t.ai.selectSpectra}
             </span>
+            <button ref={closeRef} type="button" className="ai-drawer-close" onClick={closeDrawer} aria-label={t.ai.close} title={t.ai.close}>×</button>
           </div>
 
           {/* Conversation tabs */}

@@ -16,6 +16,7 @@ vi.mock("axios", () => ({
 }));
 
 import {
+  ApiError,
   REPORT_DOWNLOAD_TIMEOUT_MS,
   UPLOAD_TIMEOUT_MS,
   downloadBatchCsvZip,
@@ -23,7 +24,69 @@ import {
   downloadMarkdownReport,
   downloadSpectrumCsv,
   uploadFile,
+  elucidateStructure,
+  elucidateCombined,
+  processNmrSpectrum,
+  resetNmrSpectrum,
 } from "./api";
+
+// Capture the installed interceptor before individual tests clear mock calls.
+const rejectApiResponse = mockApi.interceptors.response.use.mock.calls[0][1] as (
+  error: unknown,
+) => Promise<never>;
+
+describe("API error details", () => {
+  it.each(["later_result_edit", "unverifiable_history"])("preserves the structured %s protection reason for localization", async (reason) => {
+    const detail = {
+      code: "ai_undo_blocked",
+      reason,
+      message: "AI undo was blocked to preserve the current result",
+      current_revision: 7,
+    };
+
+    await expect(rejectApiResponse({
+      response: { status: 409, data: { detail } },
+    })).rejects.toMatchObject({
+      name: "ApiError",
+      message: detail.message,
+      status: 409,
+      detail,
+    });
+  });
+
+  it("keeps string errors and existing two-argument construction compatible", async () => {
+    await expect(rejectApiResponse({
+      response: { status: 404, data: { detail: "Spectrum not found" } },
+    })).rejects.toMatchObject({
+      name: "ApiError",
+      message: "Spectrum not found",
+      status: 404,
+      detail: "Spectrum not found",
+    });
+    expect(new ApiError("offline", 503).detail).toBeUndefined();
+  });
+});
+
+describe("NMR processing revision binding", () => {
+  beforeEach(() => mockApi.post.mockReset());
+
+  it("sends both reviewed revisions for preview and apply", async () => {
+    mockApi.post.mockResolvedValue({ data: {} });
+    for (const preview_only of [true, false]) {
+      const payload = { expected_revision: 4, expected_result_revision: 7, preview_only, invert: true };
+      await processNmrSpectrum("nmr-1", payload);
+      expect(mockApi.post).toHaveBeenLastCalledWith("/api/nmr/nmr-1/process", payload);
+    }
+  });
+
+  it("sends both reviewed revisions for reset", async () => {
+    mockApi.post.mockResolvedValue({ data: {} });
+    await resetNmrSpectrum("nmr-1", 4, 7);
+    expect(mockApi.post).toHaveBeenCalledExactlyOnceWith("/api/nmr/nmr-1/reset", {
+      expected_revision: 4, expected_result_revision: 7,
+    });
+  });
+});
 
 describe("downloadBlob", () => {
   let createdAnchor: HTMLAnchorElement | null;
@@ -109,5 +172,30 @@ describe("downloadBlob", () => {
       timeout: REPORT_DOWNLOAD_TIMEOUT_MS,
     });
     expect(createdAnchor?.download).toBe("custom.csv");
+  });
+});
+
+
+describe("elucidation evidence request wiring", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApi.post.mockResolvedValue({ data: { candidates: [] } });
+  });
+
+  it("preserves the selected continuous proton source and cancellation signal", async () => {
+    const controller = new AbortController();
+    const payload = { peaks_13c: [], peaks_1h: [{ shift: 1.2 }], spectrum_1h_id: "proton-2", generate_experimental: true };
+    await elucidateStructure(payload, controller.signal);
+    expect(mockApi.post).toHaveBeenCalledWith("/api/ml/elucidate/predict", payload, {
+      signal: controller.signal, timeout: 120000,
+    });
+  });
+
+  it("preserves the exact pair for server-side nucleus and source resolution", async () => {
+    const controller = new AbortController();
+    await elucidateCombined("carbon-1", "proton-2", "C2H6O", true, controller.signal);
+    expect(mockApi.post).toHaveBeenCalledWith("/api/ml/elucidate/predict/combined", {
+      id1: "carbon-1", id2: "proton-2", formula: "C2H6O", generate_experimental: true,
+    }, { signal: controller.signal, timeout: 120000 });
   });
 });

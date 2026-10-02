@@ -18,11 +18,13 @@ export const API_BASE = String(import.meta.env.VITE_API_URL || "").replace(/\/$/
 
 export class ApiError extends Error {
   status?: number;
+  readonly detail?: unknown;
 
-  constructor(message: string, status?: number) {
+  constructor(message: string, status?: number, detail?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -96,7 +98,7 @@ api.interceptors.response.use(
           : detail && typeof detail === "object"
             ? String(detail.message || detail.code || JSON.stringify(detail))
             : "Request failed";
-      return Promise.reject(new ApiError(message, err.response.status));
+      return Promise.reject(new ApiError(message, err.response.status, detail));
     }
     if (err.code === "ECONNABORTED") {
       return Promise.reject(new ApiError("Request timed out — try again"));
@@ -153,6 +155,7 @@ export async function processNmrSpectrum(
     preview_only?: boolean;
     replay_from_original?: boolean;
     expected_revision: number;
+    expected_result_revision: number;
   }
 ): Promise<SpectrumData & {
   processing_applied?: Array<Record<string, unknown>>;
@@ -194,6 +197,7 @@ export async function getNmrSpectrumView(
 export async function resetNmrSpectrum(
   id: string,
   expectedRevision: number,
+  expectedResultRevision: number,
 ): Promise<SpectrumData & {
   processing_applied?: Array<Record<string, unknown>>;
   warnings?: string[];
@@ -202,6 +206,7 @@ export async function resetNmrSpectrum(
 }> {
   const { data } = await api.post(`/api/nmr/${id}/reset`, {
     expected_revision: expectedRevision,
+    expected_result_revision: expectedResultRevision,
   });
   return data;
 }
@@ -288,7 +293,7 @@ export async function saveManualResult(
 }
 
 export async function listResultVersions(id: string): Promise<{
-  versions: Array<{ version: number; note: string; created_at: string; n_peaks: number; manual_confirmed: boolean; summary: string }>;
+  versions: Array<{ version: number; note: string; created_at: string; n_peaks: number; manual_confirmed: boolean; summary: string; spectrum_revision?: number | null; restorable?: boolean }>;
 }> {
   const { data } = await api.get(`/api/results/${id}/versions`);
   return data;
@@ -644,6 +649,7 @@ export interface ElucidationRequest {
   formula?: string;
   solvent?: string;
   generate_experimental?: boolean;
+  spectrum_1h_id?: string;
   candidate_smiles?: string[];
   required_smarts?: string[];
   forbidden_smarts?: string[];
@@ -656,6 +662,20 @@ export interface ElucidationResponse {
   candidates?: Array<Record<string, unknown>>;
   experimental_hypotheses?: Array<Record<string, unknown>>;
   generated_candidates?: Array<Record<string, unknown>>;
+  generation?: {
+    status?: string;
+    generator?: string;
+    generator_status?: string;
+    model?: { name?: string; variant?: string; checkpoint?: string; reference?: string };
+    input_mode?: string;
+    prompt_schema?: string;
+    provided_modalities?: string[];
+    used_modalities?: string[];
+    ignored_modalities?: string[];
+    input_warnings?: string[];
+    observed_carbon_lower_bound?: number;
+    error_code?: string;
+  };
   mixture_analysis?: Record<string, unknown> | null;
   index?: Record<string, unknown> | null;
   data_attribution?: Array<{
@@ -699,6 +719,8 @@ export interface ElucidationResponse {
   query?: {
     formula?: string;
     canonical_formula?: string;
+    spectrum_1h_id?: string | null;
+    spectrum_1h_revision?: number | null;
     preprocessing?: Record<string, unknown>;
   };
   forward_model?: {

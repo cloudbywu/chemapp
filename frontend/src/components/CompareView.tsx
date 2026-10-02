@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { compareSpectra } from "../services/api";
 import { useLang } from "../i18n/LangContext";
 import { MISSING_VALUE_PLACEHOLDER, finiteNumber } from "../utils/number";
@@ -9,25 +9,51 @@ interface Props {
   spectra: SpectrumListItem[];
 }
 
+type ComparisonState = {
+  selectionKey: string;
+  pending: boolean;
+  result: ComparisonResult | null;
+  error: string;
+};
+
 export default function CompareView({ spectra }: Props) {
   const { t } = useLang();
   const [id1, setId1] = useState("");
   const [id2, setId2] = useState("");
-  const [result, setResult] = useState<ComparisonResult | null>(null);
-  const [comparing, setComparing] = useState(false);
-  const [error, setError] = useState("");
+  const [comparison, setComparison] = useState<ComparisonState | null>(null);
+  const requestSequence = useRef(0);
+  const first = spectra.find((item) => item.id === id1);
+  const second = spectra.find((item) => item.id === id2);
+  // Bind feedback to the selected records, including later edits or deletions.
+  const selectionKey = JSON.stringify([first?.id, first?.spectrum_revision, first?.result_revision,
+    second?.id, second?.spectrum_revision, second?.result_revision]);
+  const current = first && second && comparison?.selectionKey === selectionKey ? comparison : null;
+  const result = current?.result;
+  const error = current?.error;
+  const comparing = current?.pending ?? false;
+
+  useEffect(() => () => {
+    requestSequence.current += 1;
+  }, [selectionKey]);
+
+  const changeSelection = (value: string, position: "first" | "second") => {
+    requestSequence.current += 1;
+    setComparison(null);
+    if (position === "first") setId1(value);
+    else setId2(value);
+  };
 
   const handleCompare = async () => {
-    if (!id1 || !id2) return;
-    setError("");
-    setComparing(true);
+    if (!first || !second || comparing) return;
+    const sequence = ++requestSequence.current;
+    setComparison({ selectionKey, pending: true, result: null, error: "" });
     try {
       const data = await compareSpectra(id1, id2);
-      setResult(data);
+      if (sequence !== requestSequence.current) return;
+      setComparison({ selectionKey, pending: false, result: data, error: "" });
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Comparison failed");
-    } finally {
-      setComparing(false);
+      if (sequence !== requestSequence.current) return;
+      setComparison({ selectionKey, pending: false, result: null, error: e instanceof Error ? e.message : t.error.network });
     }
   };
 
@@ -35,7 +61,7 @@ export default function CompareView({ spectra }: Props) {
     <div className="compare-view">
       <h3>{t.compare.title}</h3>
       <div className="compare-selects">
-        <select value={id1} onChange={(e) => setId1(e.target.value)}>
+        <select aria-label={t.compare.select1} value={first ? id1 : ""} onChange={(e) => changeSelection(e.target.value, "first")}>
           <option value="">{t.compare.select1}</option>
           {spectra.map((s) => (
             <option key={s.id} value={s.id}>
@@ -43,7 +69,7 @@ export default function CompareView({ spectra }: Props) {
             </option>
           ))}
         </select>
-        <select value={id2} onChange={(e) => setId2(e.target.value)}>
+        <select aria-label={t.compare.select2} value={second ? id2 : ""} onChange={(e) => changeSelection(e.target.value, "second")}>
           <option value="">{t.compare.select2}</option>
           {spectra.map((s) => (
             <option key={s.id} value={s.id}>
@@ -51,11 +77,12 @@ export default function CompareView({ spectra }: Props) {
             </option>
           ))}
         </select>
-        <button onClick={() => void handleCompare()} disabled={comparing || !id1 || !id2}>
+        <button type="button" onClick={() => void handleCompare()} disabled={comparing || !first || !second}>
           {comparing ? t.compare.comparing : t.compare.compare}
         </button>
       </div>
-      {error && <p className="error">{error}</p>}
+      {comparing && <p className="visually-hidden" role="status">{t.compare.comparing}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
       {result && (
         <div className="compare-result">
           <p>{result.technique1} vs {result.technique2}</p>

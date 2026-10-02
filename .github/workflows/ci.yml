@@ -108,6 +108,7 @@ jobs:
       - run: npm run lint
       - run: npm run test --if-present
       - run: npm run build
+      - run: node --experimental-vm-modules scripts/verify-plotly-bundle.mjs
 
   frontend-image:
     runs-on: ubuntu-latest

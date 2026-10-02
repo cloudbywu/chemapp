@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LangProvider } from "../i18n/LangContext";
 import type * as api from "../services/api";
@@ -6,10 +6,11 @@ import type { AnalysisResult } from "../types/spectrum";
 import MLPredictionPanel from "./MLPredictionPanel";
 
 const elucidateStructure = vi.fn<typeof api.elucidateStructure>();
+const elucidateCombined = vi.fn<typeof api.elucidateCombined>();
 
 vi.mock("../services/api", () => ({
   elucidateStructure: (...args: Parameters<typeof api.elucidateStructure>) => elucidateStructure(...args),
-  elucidateCombined: vi.fn(),
+  elucidateCombined: (...args: Parameters<typeof api.elucidateCombined>) => elucidateCombined(...args),
 }));
 
 vi.mock("./MoleculeViewer", () => ({
@@ -125,12 +126,13 @@ describe("MLPredictionPanel", () => {
       </LangProvider>,
     );
 
-    fireEvent.click(screen.getByLabelText("Enable experimental T5 generation"));
+    fireEvent.click(screen.getByLabelText("Enable experimental generation"));
     fireEvent.click(screen.getByRole("button", { name: "Rank candidates" }));
 
     await waitFor(() => expect(elucidateStructure).toHaveBeenCalledTimes(1));
     expect(elucidateStructure.mock.calls[0][0]).toMatchObject({
       generate_experimental: true,
+      spectrum_1h_id: "spectrum-1",
     });
   });
 
@@ -435,5 +437,172 @@ describe("MLPredictionPanel", () => {
     );
     expect(duplicateKeyWarnings).toHaveLength(0);
     errorSpy.mockRestore();
+  });
+});
+
+
+const permittedCalibration = {
+  probability: 0.91,
+  automatic_selection_allowed: false,
+  external_holder_pending: false,
+};
+
+function renderPrediction() {
+  return render(
+    <LangProvider>
+      <MLPredictionPanel spectrumId="nmr-1" hasResult technique="NMR" nucleus="13C" result={result} />
+    </LangProvider>,
+  );
+}
+
+describe("prediction claim and request safety", () => {
+  beforeEach(() => {
+    localStorage.setItem("chemapp-lang", "en");
+    elucidateStructure.mockReset();
+  });
+
+  const blockedClaims: Array<{
+    name: string;
+    calibration: api.ElucidationResponse["calibrated_probability"];
+    probability: number;
+  }> = [
+    { name: "closed policy", calibration: false, probability: 0.91 },
+    { name: "missing calibration", calibration: undefined, probability: 0.91 },
+    { name: "boolean-only claim", calibration: true, probability: 0.91 },
+    { name: "pending external holder", calibration: { ...permittedCalibration, external_holder_pending: true }, probability: 0.91 },
+    { name: "missing external validation status", calibration: { probability: 0.91 }, probability: 0.91 },
+    { name: "inconsistent probability", calibration: permittedCalibration, probability: 0.8 },
+    { name: "out-of-range probability", calibration: { ...permittedCalibration, probability: 1.5 }, probability: 1.5 },
+    { name: "non-finite probability", calibration: { ...permittedCalibration, probability: NaN }, probability: NaN },
+  ];
+
+  it.each(blockedClaims)("does not advertise a calibrated probability for $name", async ({ calibration, probability }) => {
+    elucidateStructure.mockResolvedValue({
+      method: "Checked ranking",
+      calibrated_probability: calibration,
+      top1_calibrated_probability: probability,
+      decision: { action: "abstain" },
+    });
+    renderPrediction();
+    fireEvent.click(screen.getByRole("button", { name: "Rank candidates" }));
+    expect(await screen.findByText(/Checked ranking/)).toBeInTheDocument();
+    expect(screen.queryByText(/Calibrated Top-1 confidence/)).not.toBeInTheDocument();
+    expect(screen.getByText("Candidate order is relative evidence, not a probability of structural correctness.")).toBeInTheDocument();
+  });
+
+  it("shows only a finite consistent explicitly validated conditional probability", async () => {
+    elucidateStructure.mockResolvedValue({
+      method: "Checked ranking",
+      calibrated_probability: permittedCalibration,
+      top1_calibrated_probability: 0.91,
+      decision: { action: "abstain" },
+    });
+    renderPrediction();
+    fireEvent.click(screen.getByRole("button", { name: "Rank candidates" }));
+    expect(await screen.findByText(/Calibrated Top-1 confidence: 91.0%/)).toBeInTheDocument();
+    expect(screen.getByText("Automatic structure selection was refused")).toBeInTheDocument();
+  });
+
+  it("ignores a response that arrives after cancellation", async () => {
+    let resolve!: (data: api.ElucidationResponse) => void;
+    const pending = new Promise<api.ElucidationResponse>((resolvePromise) => { resolve = resolvePromise; });
+    elucidateStructure.mockReturnValue(pending);
+    renderPrediction();
+    fireEvent.click(screen.getByRole("button", { name: "Rank candidates" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {
+      resolve({ method: "Canceled ranking" });
+      await pending;
+    });
+    expect(screen.queryByText(/Canceled ranking/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rank candidates" })).toBeEnabled();
+  });
+
+  it("suppresses a late ordinary error after cancellation", async () => {
+    let reject!: (error: Error) => void;
+    const pending = new Promise<api.ElucidationResponse>((_, rejectPromise) => { reject = rejectPromise; });
+    elucidateStructure.mockReturnValue(pending);
+    renderPrediction();
+    fireEvent.click(screen.getByRole("button", { name: "Rank candidates" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {
+      reject(new Error("Canceled request failed"));
+      await pending.catch(() => undefined);
+    });
+    expect(screen.queryByText("Canceled request failed")).not.toBeInTheDocument();
+  });
+});
+
+describe("experimental generator source provenance", () => {
+  beforeEach(() => {
+    localStorage.setItem("chemapp-lang", "en");
+    elucidateStructure.mockReset();
+    elucidateCombined.mockReset();
+    elucidateStructure.mockResolvedValue({ candidates: [] });
+    elucidateCombined.mockResolvedValue({ candidates: [] });
+  });
+
+  it("does not identify a carbon source as a continuous proton spectrum", async () => {
+    renderPrediction();
+    fireEvent.click(screen.getByLabelText("Enable experimental generation"));
+    fireEvent.click(screen.getByRole("button", { name: "Rank candidates" }));
+    await waitFor(() => expect(elucidateStructure).toHaveBeenCalledTimes(1));
+    expect(elucidateStructure.mock.calls[0][0].spectrum_1h_id).toBeUndefined();
+    expect(elucidateStructure.mock.calls[0][0].peaks_13c).toHaveLength(1);
+  });
+
+  it("sends the exact selected pair, leaving proton source resolution to the server", async () => {
+    render(<LangProvider><MLPredictionPanel spectrumId="carbon-1" hasResult technique="NMR" nucleus="13C"
+      result={result} spectra={[
+        { id: "proton-2", technique: "NMR", points: 20, name: "Selected proton", has_result: true, summary: "" },
+        { id: "proton-3", technique: "NMR", points: 20, name: "Other proton", has_result: true, summary: "" },
+      ]} /></LangProvider>);
+    fireEvent.change(screen.getByLabelText("Paired NMR spectrum"), { target: { value: "proton-2" } });
+    fireEvent.click(screen.getByLabelText("Enable experimental generation"));
+    fireEvent.click(screen.getByRole("button", { name: "¹H + ¹³C combined" }));
+    await waitFor(() => expect(elucidateCombined).toHaveBeenCalledTimes(1));
+    expect(elucidateCombined).toHaveBeenCalledWith(
+      "carbon-1", "proton-2", undefined, true, expect.any(AbortSignal),
+      { candidate_smiles: [], required_smarts: [], forbidden_smarts: [] },
+    );
+    expect(elucidateStructure).not.toHaveBeenCalled();
+  });
+
+  it("renders the actual generator variant and continuous proton input without T5 labeling", async () => {
+    elucidateStructure.mockResolvedValueOnce({
+      candidates: [],
+      generation: {
+        status: "completed", generator: "nmr2struct", model: { name: "NMR2Struct", variant: "multitask" },
+        input_mode: "13c_peaks+1h_spectrum", prompt_schema: "nmr2struct-multitask-v1", ignored_modalities: ["1h_peaks"],
+      },
+      generated_candidates: [{ smiles: "CCO", source: "nmr2struct-generation-experimental" }],
+      warnings: ["13c_shifts_use_boundary_bins"],
+    });
+    renderPrediction();
+    fireEvent.click(screen.getByRole("button", { name: "Rank candidates" }));
+    expect(await screen.findByText("NMR2Struct · multitask")).toBeInTheDocument();
+    expect(screen.getByText("¹³C peak list + Continuous ¹H spectrum")).toBeInTheDocument();
+    expect(screen.getByText("nmr2struct-multitask-v1")).toBeInTheDocument();
+    expect(screen.getByText(/Some ¹³C shifts use the generator’s boundary bins/)).toBeInTheDocument();
+    expect(screen.getByText("¹H peak list")).toBeInTheDocument();
+    expect(screen.getByText(/nmr2struct-generation-experimental/)).toBeInTheDocument();
+    expect(screen.queryByText(/T5/)).not.toBeInTheDocument();
+  });
+
+  it("shows a generation failure even when it returns no hypotheses", async () => {
+    elucidateStructure.mockResolvedValueOnce({
+      candidates: [], generation: { status: "generation_unavailable", generator: "nmr2struct", error_code: "no_1h_spectrum" },
+    });
+    renderPrediction();
+    fireEvent.click(screen.getByRole("button", { name: "Rank candidates" }));
+    expect(await screen.findByText("Generation status: Generation unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Reason: no_1h_spectrum")).toBeInTheDocument();
+  });
+
+  it("does not silently relabel an unknown nucleus as proton evidence", async () => {
+    render(<LangProvider><MLPredictionPanel spectrumId="unknown-1" hasResult technique="NMR" nucleus="19F" result={result} /></LangProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Rank candidates" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Select an NMR spectrum identified as ¹H or ¹³C.");
+    expect(elucidateStructure).not.toHaveBeenCalled();
   });
 });

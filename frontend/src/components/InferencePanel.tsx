@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { analyzeBatch, compareHplcBatch, downloadBatchCsvZip, downloadDocxReport, downloadHtmlReport, downloadHplcComparisonCsv, downloadMarkdownReport, getBatchQuality, getBatchWorkbench, runInference } from "../services/api";
 import { useLang } from "../i18n/LangContext";
 import type { InferenceResponse, SpectrumListItem } from "../types/spectrum";
@@ -8,141 +8,134 @@ interface Props {
   onDataChanged?: () => void;
 }
 
+type Action = "inference" | "batch" | "markdown" | "html" | "docx" | "bundle" | "hplc" | "hplcCsv" | "quality" | "workbench";
+type RequestOwner = { scope: object };
+type Results = {
+  result: InferenceResponse | null;
+  batchSummary: string;
+  hplcComparison: Awaited<ReturnType<typeof compareHplcBatch>> | null;
+  qualitySummary: Awaited<ReturnType<typeof getBatchQuality>> | null;
+  workbench: Awaited<ReturnType<typeof getBatchWorkbench>> | null;
+};
+type ViewState = Results & {
+  key: string;
+  scope: object;
+  busy: Partial<Record<Action, boolean>>;
+  latestRequest: RequestOwner | null;
+  error: string;
+};
+const emptyView = (key: string): ViewState => ({
+  key, scope: {}, busy: {}, latestRequest: null, error: "", result: null,
+  batchSummary: "", hplcComparison: null, qualitySummary: null, workbench: null,
+});
+
 export default function InferencePanel({ spectra, onDataChanged }: Props) {
   const { t } = useLang();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [result, setResult] = useState<InferenceResponse | null>(null);
-  const [running, setRunning] = useState(false);
+  const available = new Map(spectra.map((item) => [item.id, item]));
+  // Preserve selection order: the first HPLC spectrum is the comparison reference.
+  const ids = Array.from(selected).filter((id) => available.has(id));
+  const selectedItems = ids.map((id) => available.get(id)!);
+  const selectionKey = JSON.stringify(selectedItems.map((item) => [
+    item.id, item.spectrum_revision ?? 0, item.result_revision ?? 0, item.technique,
+  ]));
+  const [view, setView] = useState(() => emptyView(selectionKey));
   const [batching, setBatching] = useState(false);
-  const [error, setError] = useState("");
-  const [batchSummary, setBatchSummary] = useState("");
-  const [hplcComparison, setHplcComparison] = useState<Awaited<ReturnType<typeof compareHplcBatch>> | null>(null);
-  const [qualitySummary, setQualitySummary] = useState<Awaited<ReturnType<typeof getBatchQuality>> | null>(null);
-  const [workbench, setWorkbench] = useState<Awaited<ReturnType<typeof getBatchWorkbench>> | null>(null);
+  const requests = useRef(new Map<Action, RequestOwner>());
+  const mounted = useRef(false);
+  const onDataChangedRef = useRef(onDataChanged);
+
+  // Adjust during render so neither deleted IDs nor old results can reach a commit.
+  // A fresh scope identity also invalidates A -> B -> A requests, not just different keys.
+  if (ids.length !== selected.size) setSelected(new Set(ids));
+  if (view.key !== selectionKey) setView(emptyView(selectionKey));
+
+  useEffect(() => {
+    onDataChangedRef.current = onDataChanged;
+  }, [onDataChanged]);
+  useEffect(() => {
+    mounted.current = true;
+    const owners = requests.current;
+    return () => {
+      mounted.current = false;
+      owners.clear();
+    };
+  }, []);
 
   const toggle = (id: string) => {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelected(next);
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
-  const handleRun = async () => {
-    if (selected.size === 0) return;
-    setError("");
-    setRunning(true);
+  const execute = async <T,>(
+    action: Action,
+    operation: () => Promise<T>,
+    failure: string,
+    apply: (data: T) => Partial<Results> = () => ({}),
+  ) => {
+    if (!ids.length || batching || requests.current.has("batch")) return;
+    const previous = requests.current.get(action);
+    // The ref takes ownership synchronously, including repeated gestures in one render.
+    // Mutations stay locked across selections until the server operation actually settles.
+    if (previous?.scope === view.scope) return;
+    const reset = action === "batch" ? emptyView(selectionKey) : null;
+    const request = { scope: reset?.scope ?? view.scope };
+    requests.current.set(action, request);
+    if (action === "batch") setBatching(true);
+    setView((current) => current.scope === view.scope ? {
+      ...(reset ?? current), error: "", latestRequest: request,
+      busy: { ...(reset?.busy ?? current.busy), [action]: true },
+    } : current);
     try {
-      const data = await runInference(Array.from(selected));
-      setResult(data);
+      const data = await operation();
+      if (!mounted.current || requests.current.get(action) !== request) return;
+      setView((current) => current.scope === request.scope ? { ...current, ...apply(data) } : current);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.inferenceFailed);
+      if (!mounted.current || requests.current.get(action) !== request) return;
+      setView((current) => current.scope === request.scope && current.latestRequest === request
+        ? { ...current, error: e instanceof Error ? e.message : failure } : current);
     } finally {
-      setRunning(false);
+      if (mounted.current && requests.current.get(action) === request) {
+        requests.current.delete(action);
+        if (action === "batch") setBatching(false);
+        setView((current) => current.scope === request.scope
+          ? { ...current, busy: { ...current.busy, [action]: false } } : current);
+      }
     }
   };
 
-  const handleReport = async () => {
-    if (selected.size === 0) return;
-    try {
-      await downloadMarkdownReport(Array.from(selected), "ChemApp Multi-Spectrum Report");
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.reportFailed);
-    }
-  };
+  const handleRun = () => execute("inference", () => runInference(ids), t.inference.inferenceFailed, (result) => ({ result }));
+  // An initiated download still belongs to the captured IDs; only its UI feedback is invalidated.
+  const handleReport = () => execute("markdown", () => downloadMarkdownReport(ids, "ChemApp Multi-Spectrum Report"), t.inference.reportFailed);
+  const handleHtmlReport = () => execute("html", () => downloadHtmlReport(ids, "ChemApp Multi-Spectrum Report"), t.inference.htmlReportFailed);
+  const handleDocxReport = () => execute("docx", () => downloadDocxReport(ids, "ChemApp Multi-Spectrum Report"), t.inference.docxReportFailed);
+  const handleBatchExport = () => execute("bundle", () => downloadBatchCsvZip(ids), t.inference.batchExportFailed);
+  const handleBatchAnalyze = () => execute("batch", async () => {
+    const expectedRevisions = Object.fromEntries(selectedItems.map((item) => [item.id, item.result_revision ?? 0]));
+    const data = await analyzeBatch(ids, expectedRevisions);
+    // A completed server mutation must refresh shared data even after selection changes or unmount.
+    if (data.results.length > 0) onDataChangedRef.current?.();
+    return data;
+  }, t.inference.batchAnalysisFailed, (data) => ({
+    batchSummary: t.inference.batchSummary
+      .replace("{success}", String(data.results.length))
+      .replace("{failed}", String(data.errors.length)),
+  }));
+  const handleHplcCompare = () => execute("hplc", () => compareHplcBatch(ids), t.inference.hplcCompareFailed, (hplcComparison) => ({ hplcComparison }));
+  const handleHplcCsv = () => execute("hplcCsv", () => downloadHplcComparisonCsv(ids), t.inference.hplcCsvFailed);
+  const handleQualitySummary = () => execute("quality", () => getBatchQuality(ids), t.inference.qualityFailed, (qualitySummary) => ({ qualitySummary }));
+  const handleWorkbench = () => execute("workbench", () => getBatchWorkbench(ids), t.inference.workbenchFailed, (workbench) => ({ workbench }));
 
-  const handleHtmlReport = async () => {
-    if (selected.size === 0) return;
-    try {
-      await downloadHtmlReport(Array.from(selected), "ChemApp Multi-Spectrum Report");
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.htmlReportFailed);
-    }
-  };
-
-  const handleDocxReport = async () => {
-    if (selected.size === 0) return;
-    try {
-      await downloadDocxReport(Array.from(selected), "ChemApp Multi-Spectrum Report");
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.docxReportFailed);
-    }
-  };
-
-  const handleBatchExport = async () => {
-    if (selected.size === 0) return;
-    try {
-      await downloadBatchCsvZip(Array.from(selected));
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.batchExportFailed);
-    }
-  };
-
-  const handleBatchAnalyze = async () => {
-    if (selected.size === 0) return;
-    setError("");
-    setBatching(true);
-    setBatchSummary("");
-    try {
-      const ids = Array.from(selected);
-      const expectedRevisions = Object.fromEntries(
-        spectra
-          .filter((item) => selected.has(item.id))
-          .map((item) => [item.id, item.result_revision ?? 0]),
-      );
-      const data = await analyzeBatch(ids, expectedRevisions);
-      setBatchSummary(t.inference.batchSummary
-        .replace("{success}", String(data.results.length))
-        .replace("{failed}", String(data.errors.length)));
-      if (data.results.length > 0) onDataChanged?.();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.batchAnalysisFailed);
-    } finally {
-      setBatching(false);
-    }
-  };
-
-  const handleHplcCompare = async () => {
-    setError("");
-    setHplcComparison(null);
-    try {
-      const data = await compareHplcBatch(Array.from(selected));
-      setHplcComparison(data);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.hplcCompareFailed);
-    }
-  };
-
-  const handleHplcCsv = async () => {
-    try {
-      await downloadHplcComparisonCsv(Array.from(selected));
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.hplcCsvFailed);
-    }
-  };
-
-  const handleQualitySummary = async () => {
-    setError("");
-    try {
-      const data = await getBatchQuality(Array.from(selected));
-      setQualitySummary(data);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.qualityFailed);
-    }
-  };
-
-  const handleWorkbench = async () => {
-    setError("");
-    try {
-      const data = await getBatchWorkbench(Array.from(selected));
-      setWorkbench(data);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t.inference.workbenchFailed);
-    }
-  };
-
+  const { result, error, batchSummary, hplcComparison, qualitySummary, workbench, busy } = view;
+  const running = busy.inference ?? false;
   const inference = result?.inference;
-  const selectedItems = spectra.filter((s) => selected.has(s.id));
   const canCompareHplc = selectedItems.length >= 2 && selectedItems.every((s) => s.technique === "HPLC");
+  const disabled = (action: Action) => batching || running || !!busy[action] || !ids.length;
+  const label = (action: Action, title: string) => busy[action] ? `${title} · ${t.action.loading}` : title;
 
   return (
     <div className="inference-panel">
@@ -157,6 +150,7 @@ export default function InferencePanel({ spectra, onDataChanged }: Props) {
             <label key={s.id} className="checkbox-item">
               <input
                 type="checkbox"
+                aria-label={`${s.technique} ${s.name || s.id}`}
                 checked={selected.has(s.id)}
                 onChange={() => toggle(s.id)}
               />
@@ -170,43 +164,44 @@ export default function InferencePanel({ spectra, onDataChanged }: Props) {
       )}
 
       <div className="action-bar">
-        <button onClick={() => void handleRun()} disabled={running || selected.size < 1}>
+        <button onClick={() => void handleRun()} disabled={disabled("inference")} aria-busy={running}>
           {running ? t.inference.running : t.inference.run}
         </button>
-        <button onClick={() => void handleBatchAnalyze()} disabled={batching || selected.size < 1} className="secondary-btn">
+        <button onClick={() => void handleBatchAnalyze()} disabled={batching || !ids.length} aria-busy={batching} className="secondary-btn">
           {batching ? t.inference.batchRunning : t.inference.batchAnalyze}
         </button>
-        <button onClick={() => void handleReport()} disabled={running || selected.size < 1} className="secondary-btn">
-          {t.inference.exportMarkdown}
+        <button onClick={() => void handleReport()} disabled={disabled("markdown")} aria-busy={!!busy.markdown} className="secondary-btn">
+          {label("markdown", t.inference.exportMarkdown)}
         </button>
-        <button onClick={() => void handleHtmlReport()} disabled={running || selected.size < 1} className="secondary-btn">
-          {t.inference.exportHtml}
+        <button onClick={() => void handleHtmlReport()} disabled={disabled("html")} aria-busy={!!busy.html} className="secondary-btn">
+          {label("html", t.inference.exportHtml)}
         </button>
-        <button onClick={() => void handleDocxReport()} disabled={running || selected.size < 1} className="secondary-btn">
-          {t.inference.exportWord}
+        <button onClick={() => void handleDocxReport()} disabled={disabled("docx")} aria-busy={!!busy.docx} className="secondary-btn">
+          {label("docx", t.inference.exportWord)}
         </button>
-        <button onClick={() => void handleBatchExport()} disabled={running || selected.size < 1} className="secondary-btn">
-          {t.inference.exportBundle}
+        <button onClick={() => void handleBatchExport()} disabled={disabled("bundle")} aria-busy={!!busy.bundle} className="secondary-btn">
+          {label("bundle", t.inference.exportBundle)}
         </button>
-        <button onClick={() => void handleWorkbench()} disabled={running || selected.size < 1} className="secondary-btn">
-          {t.inference.batchWorkbench}
+        <button onClick={() => void handleWorkbench()} disabled={disabled("workbench")} aria-busy={!!busy.workbench} className="secondary-btn">
+          {label("workbench", t.inference.batchWorkbench)}
         </button>
-        <button onClick={() => void handleQualitySummary()} disabled={running || selected.size < 1} className="secondary-btn">
-          {t.inference.qualityOverview}
+        <button onClick={() => void handleQualitySummary()} disabled={disabled("quality")} aria-busy={!!busy.quality} className="secondary-btn">
+          {label("quality", t.inference.qualityOverview)}
         </button>
         {canCompareHplc && (
-          <button onClick={() => void handleHplcCompare()} disabled={running} className="secondary-btn">
-            {t.inference.hplcMatch}
+          <button onClick={() => void handleHplcCompare()} disabled={disabled("hplc")} aria-busy={!!busy.hplc} className="secondary-btn">
+            {label("hplc", t.inference.hplcMatch)}
           </button>
         )}
         {canCompareHplc && (
-          <button onClick={() => void handleHplcCsv()} disabled={running} className="secondary-btn">
-            {t.inference.hplcCsv}
+          <button onClick={() => void handleHplcCsv()} disabled={disabled("hplcCsv")} aria-busy={!!busy.hplcCsv} className="secondary-btn">
+            {label("hplcCsv", t.inference.hplcCsv)}
           </button>
         )}
-        <span className="selection-count">{t.inference.select.replace("{n}", String(selected.size))}</span>
+        <span className="selection-count">{t.inference.select.replace("{n}", String(ids.length))}</span>
       </div>
 
+      {(batching || Object.values(busy).some(Boolean)) && <p className="visually-hidden" role="status">{batching ? t.inference.batchRunning : t.action.loading}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       {batchSummary && <p className="hint" role="status" aria-live="polite">{batchSummary}</p>}
 
@@ -234,13 +229,13 @@ export default function InferencePanel({ spectra, onDataChanged }: Props) {
             </thead>
             <tbody>
               {workbench.items.map((item) => {
-                const quality = item.quality as { status?: string; score?: number };
+                const quality = item.quality as { status?: string; score?: number } | null;
                 return (
                   <tr key={item.id}>
                     <td>{item.name || item.id}</td>
                     <td>{item.technique}</td>
                     <td>{item.n_peaks}</td>
-                    <td>{quality.status || "—"} {typeof quality.score === "number" ? `${(quality.score * 100).toFixed(0)}%` : ""}</td>
+                    <td>{quality?.status || "—"} {typeof quality?.score === "number" ? `${(quality.score * 100).toFixed(0)}%` : ""}</td>
                     <td>{item.manual_confirmed ? t.inference.manual : item.ai_modified ? "AI" : t.inference.automatic}</td>
                     <td style={{ fontSize: 12 }}>{item.summary}</td>
                   </tr>

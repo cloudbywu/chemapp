@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import AnalysisControls from "./AnalysisControls";
 import ManualReviewPanel from "./ManualReviewPanel";
 import MLPredictionPanel from "./MLPredictionPanel";
@@ -24,7 +24,13 @@ type PlotPickedRange = { mode: "nmr" | "hplc"; index: number; start: number; end
 type PendingMultipletRebuild = {
   ranges: Array<{ start: number; end: number }>;
   expectedRevision: number;
+  rangeText: string;
 } | null;
+type WorkbenchRequest = {
+  kind: "preview" | "original" | "mutation";
+  controller: AbortController;
+};
+type WorkbenchTab = "process" | "review" | "multiplets" | "report";
 type NmrViewSpectrum = SpectrumData & {
   view?: "original" | "current";
   quality_metrics?: Record<string, unknown>;
@@ -84,7 +90,12 @@ function formatQualityValue(value: unknown, digits = 3): string {
   return value.toFixed(digits);
 }
 
-export default function NMRWorkbench({
+export default function NMRWorkbench(props: Props) {
+  // Also isolate drafts when a caller changes selection without keying us.
+  return <NMRWorkbenchContent key={props.spectrum.id} {...props} />;
+}
+
+function NMRWorkbenchContent({
   spectrum,
   result,
   spectra,
@@ -97,10 +108,19 @@ export default function NMRWorkbench({
   const [analysisOptions, setAnalysisOptions] = useState<AnalysisOptions>({ auto_reference: false });
   const [processing, setProcessing] = useState(() => initialProcessing(spectrum));
   const [processingBaseline, setProcessingBaseline] = useState(() => JSON.stringify(initialProcessing(spectrum)));
-  const [busy, setBusy] = useState(false);
+  const [requestKind, setRequestKind] = useState<WorkbenchRequest["kind"] | null>(null);
+  const busy = requestKind !== null;
+  const processingLocked = busy && requestKind !== "preview";
+  const [exporting, setExporting] = useState(false);
+  const requestRef = useRef<WorkbenchRequest | null>(null);
+  const exportRequestRef = useRef<object | null>(null);
+  const mountedRef = useRef(false);
+  const previewInputsRef = useRef<string | null>(null);
   const [plotPickTarget, setPlotPickTarget] = useState<PlotPickTarget>(null);
   const [plotPickedRange, setPlotPickedRange] = useState<PlotPickedRange>(null);
-  const [activeTab, setActiveTab] = useState<"process" | "review" | "multiplets" | "report">("process");
+  const [selectedTab, setSelectedTab] = useState<WorkbenchTab>("process");
+  const activeTab = result ? selectedTab : "process";
+  const tabsId = useId();
   const [notice, setNotice] = useState("");
   const [multipletRangeText, setMultipletRangeText] = useState("");
   const [multipletRangeBaseline, setMultipletRangeBaseline] = useState("");
@@ -109,18 +129,22 @@ export default function NMRWorkbench({
   const [confirmReset, setConfirmReset] = useState(false);
   const [confirmReanalysis, setConfirmReanalysis] = useState(false);
   const [confirmTabLeave, setConfirmTabLeave] = useState(false);
-  const [pendingTab, setPendingTab] = useState<typeof activeTab | null>(null);
+  const [pendingTab, setPendingTab] = useState<WorkbenchTab | null>(null);
   const [confirmDiscardForAnalysis, setConfirmDiscardForAnalysis] = useState(false);
   const [pendingMultipletRebuild, setPendingMultipletRebuild] = useState<PendingMultipletRebuild>(null);
   const [previewSpectrum, setPreviewSpectrum] = useState<SpectrumData | null>(null);
   const [previewSourceRevision, setPreviewSourceRevision] = useState<number | null>(null);
+  const [previewResultRevision, setPreviewResultRevision] = useState<number | null>(null);
   const [originalSpectrum, setOriginalSpectrum] = useState<NmrViewSpectrum | null>(null);
   const [spectrumView, setSpectrumView] = useState<"original" | "current" | "preview">("current");
   const [qualityBefore, setQualityBefore] = useState<Record<string, unknown> | null>(null);
   const [qualityAfter, setQualityAfter] = useState<Record<string, unknown> | null>(null);
   const [processingWarnings, setProcessingWarnings] = useState<string[]>([]);
   const [manualDirty, setManualDirty] = useState(false);
-  const resultRevision = result?.result_revision ?? 0;
+  const resultRevision = result?.result_revision ?? spectrum.result_revision ?? 0;
+  const sourceKey = `${spectrum.id}:${spectrum.spectrum_revision ?? 0}:${resultRevision}`;
+  const previousSourceKey = useRef(sourceKey);
+  const previousProcessing = useRef(processing);
   const previousResultRevision = useRef(resultRevision);
   const phaseAvailable = spectrum.parameters.quadrature_available === true
     || spectrum.parameters.phase_correction_available === true
@@ -132,6 +156,77 @@ export default function NMRWorkbench({
   );
   const multipletDirty = multipletRangeText !== multipletRangeBaseline;
   const draftDirty = processingDirty || manualDirty || multipletDirty;
+
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    if (previousSourceKey.current !== sourceKey) {
+      previousSourceKey.current = sourceKey;
+      setRequestKind(null);
+      setExporting(false);
+      setPreviewSpectrum(null);
+      setPreviewSourceRevision(null);
+      setPreviewResultRevision(null);
+      previewInputsRef.current = null;
+      setSpectrumView("current");
+      setConfirmProcessing(false);
+      setConfirmReset(false);
+      setConfirmReanalysis(false);
+      setConfirmDiscardForAnalysis(false);
+      setConfirmTabLeave(false);
+      setPendingTab(null);
+      setPendingMultipletRebuild(null);
+      setPlotPickTarget(null);
+      setPlotPickedRange(null);
+    }
+    return () => {
+      mountedRef.current = false;
+      // Abort is best effort. A dispatched mutation may already be committed;
+      // ownership checks, rather than cancellation, protect the selected view.
+      requestRef.current?.controller.abort();
+      requestRef.current = null;
+      exportRequestRef.current = null;
+    };
+  }, [sourceKey]);
+
+  useLayoutEffect(() => {
+    if (previousProcessing.current === processing) return;
+    previousProcessing.current = processing;
+    const request = requestRef.current;
+    if (request?.kind !== "preview" && previewInputsRef.current === null) return;
+    if (request?.kind === "preview") {
+      request.controller.abort();
+      requestRef.current = null;
+      setRequestKind(null);
+    }
+    // A reviewed preview is valid only for the exact processing inputs shown.
+    previewInputsRef.current = null;
+    setPreviewSpectrum(null);
+    setPreviewSourceRevision(null);
+    setPreviewResultRevision(null);
+    setConfirmProcessing(false);
+    setSpectrumView("current");
+    setQualityBefore(null);
+    setQualityAfter(null);
+    setProcessingWarnings([]);
+    setNotice("");
+  }, [processing]);
+
+  const beginRequest = (kind: WorkbenchRequest["kind"]): WorkbenchRequest | null => {
+    // State disables controls after rendering; the ref also rejects repeated
+    // actions in the same event turn, before React has rendered that state.
+    if (!mountedRef.current || requestRef.current) return null;
+    const request = { kind, controller: new AbortController() };
+    requestRef.current = request;
+    setRequestKind(kind);
+    return request;
+  };
+  const ownsRequest = (request: WorkbenchRequest) => mountedRef.current
+    && requestRef.current === request;
+  const finishRequest = (request: WorkbenchRequest) => {
+    if (!ownsRequest(request)) return;
+    requestRef.current = null;
+    setRequestKind(null);
+  };
 
   useEffect(() => {
     onDirtyChange?.(draftDirty);
@@ -149,6 +244,7 @@ export default function NMRWorkbench({
     setPendingMultipletRebuild(null);
     setPreviewSpectrum(null);
     setPreviewSourceRevision(null);
+    setPreviewResultRevision(null);
     setConfirmProcessing(false);
     setSpectrumView("current");
     setQualityBefore(null);
@@ -156,7 +252,7 @@ export default function NMRWorkbench({
     setProcessingWarnings([]);
   }, [resultRevision]);
 
-  const processingPayload = (previewOnly: boolean, expectedRevision: number) => {
+  const processingPayload = (previewOnly: boolean, expectedRevision: number, expectedResultRevision: number) => {
     const referenceCurrent = optionalFiniteNumber(processing.reference_current_ppm);
     const useAls = processing.baseline_method === "asymmetric_least_squares";
     const useAutoPhase = phaseAvailable && processing.auto_phase;
@@ -218,6 +314,7 @@ export default function NMRWorkbench({
       replay_from_original: true,
       preview_only: previewOnly,
       expected_revision: expectedRevision,
+      expected_result_revision: expectedResultRevision,
     };
   };
 
@@ -233,10 +330,13 @@ export default function NMRWorkbench({
   const previewProcessing = async () => {
     const expectedRevision = currentSpectrumRevision();
     if (expectedRevision === null) return;
-    setBusy(true);
+    const request = beginRequest("preview");
+    if (!request) return;
+    previewInputsRef.current = null;
     setNotice("");
     setPreviewSpectrum(null);
     setPreviewSourceRevision(null);
+    setPreviewResultRevision(null);
     setSpectrumView("current");
     setQualityBefore(null);
     setQualityAfter(null);
@@ -245,9 +345,12 @@ export default function NMRWorkbench({
     try {
       const preview = await processNmrSpectrum(
         spectrum.id,
-        processingPayload(true, expectedRevision),
+        processingPayload(true, expectedRevision, resultRevision),
       );
+      if (!ownsRequest(request)) return;
+      previewInputsRef.current = JSON.stringify(processing);
       setPreviewSourceRevision(expectedRevision);
+      setPreviewResultRevision(resultRevision);
       setPreviewSpectrum(preview);
       setSpectrumView("preview");
       setQualityBefore(preview.quality_before || null);
@@ -256,35 +359,43 @@ export default function NMRWorkbench({
       setConfirmProcessing(true);
       setNotice(t.workbench.previewReady);
     } catch (cause: unknown) {
+      if (!ownsRequest(request)) return;
       onError(cause instanceof ApiError && cause.status === 409
         ? t.manual.revisionConflict
         : cause instanceof Error ? cause.message : t.workbench.processingFailed);
     } finally {
-      setBusy(false);
+      finishRequest(request);
     }
   };
 
   const applyProcessing = async () => {
+    if (requestRef.current) return;
     const expectedRevision = previewSourceRevision;
-    if (expectedRevision === null) {
+    if (expectedRevision === null || expectedRevision !== spectrum.spectrum_revision
+      || previewResultRevision === null || previewResultRevision !== resultRevision
+      || previewInputsRef.current !== JSON.stringify(processing)) {
       setConfirmProcessing(false);
       onError(t.manual.revisionConflict);
       return;
     }
+    const request = beginRequest("mutation");
+    if (!request) return;
     setConfirmProcessing(false);
-    setBusy(true);
     setNotice("");
     setProcessingWarnings([]);
     onError("");
     try {
       const updated = await processNmrSpectrum(
         spectrum.id,
-        processingPayload(false, expectedRevision),
+        processingPayload(false, expectedRevision, previewResultRevision),
       );
+      if (!ownsRequest(request)) return;
+      previewInputsRef.current = null;
       onSpectrumChanged(updated);
       onResultChanged(null);
       setPreviewSpectrum(null);
       setPreviewSourceRevision(null);
+      setPreviewResultRevision(null);
       setSpectrumView("current");
       setQualityBefore(updated.quality_before || null);
       setQualityAfter(updated.quality_after || null);
@@ -300,17 +411,19 @@ export default function NMRWorkbench({
       setProcessingBaseline(JSON.stringify(reset));
       setManualDirty(false);
     } catch (cause: unknown) {
+      if (!ownsRequest(request)) return;
       onError(cause instanceof ApiError && cause.status === 409
         ? t.manual.revisionConflict
         : cause instanceof Error ? cause.message : t.workbench.processingFailed);
     } finally {
-      setBusy(false);
+      finishRequest(request);
     }
   };
 
   const runAnalysis = async (forceOverwrite = false) => {
+    const request = beginRequest("mutation");
+    if (!request) return;
     setConfirmReanalysis(false);
-    setBusy(true);
     setNotice("");
     setProcessingWarnings([]);
     onError("");
@@ -318,16 +431,18 @@ export default function NMRWorkbench({
       const data = await analyzeSpectrum(
         spectrum.id,
         analysisOptions,
-        undefined,
+        request.controller.signal,
         result?.result_revision ?? 0,
         forceOverwrite,
       );
+      if (!ownsRequest(request)) return;
       onResultChanged(data);
       setNotice(t.workbench.analysisUpdated);
     } catch (e: unknown) {
+      if (!ownsRequest(request)) return;
       onError(e instanceof Error ? e.message : t.workbench.analysisFailed);
     } finally {
-      setBusy(false);
+      finishRequest(request);
     }
   };
 
@@ -341,6 +456,7 @@ export default function NMRWorkbench({
   };
 
   const requestAnalysis = () => {
+    if (requestRef.current) return;
     if (draftDirty) {
       setConfirmDiscardForAnalysis(true);
       return;
@@ -350,6 +466,7 @@ export default function NMRWorkbench({
   };
 
   const confirmDiscardManualForAnalysis = () => {
+    if (requestRef.current) return;
     setConfirmDiscardForAnalysis(false);
     discardLocalDrafts();
     if (result?.metrics.manual_confirmed) {
@@ -359,41 +476,76 @@ export default function NMRWorkbench({
     void runAnalysis(false);
   };
 
-  const requestTab = (next: typeof activeTab) => {
+  const requestTab = (next: WorkbenchTab) => {
+    if (requestRef.current) return;
+    if (next !== "process" && !result) return;
     if (next === activeTab) return;
     if (draftDirty) {
       setPendingTab(next);
       setConfirmTabLeave(true);
       return;
     }
-    setActiveTab(next);
+    setSelectedTab(next);
   };
 
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (requestRef.current) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    if (!(event.target instanceof HTMLButtonElement)) return;
+    const enabledTabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      '[role="tab"]:not(:disabled)',
+    ));
+    const currentIndex = enabledTabs.indexOf(event.target);
+    if (currentIndex < 0) return;
+    event.preventDefault();
+    const nextIndex = event.key === "Home" ? 0
+      : event.key === "End" ? enabledTabs.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + enabledTabs.length) % enabledTabs.length;
+    // Focus alone must never activate a tab or discard unsaved edits.
+    // Native button Enter/Space activation still goes through requestTab.
+    enabledTabs[nextIndex].focus();
+  };
+
+  const tabPanelProps = (tab: WorkbenchTab) => ({
+    role: "tabpanel",
+    id: `${tabsId}-panel-${tab}`,
+    "aria-labelledby": `${tabsId}-tab-${tab}`,
+    hidden: activeTab !== tab,
+    tabIndex: 0,
+  });
+
   const confirmLeaveTab = () => {
+    if (requestRef.current) return;
     const next = pendingTab;
     setConfirmTabLeave(false);
     setPendingTab(null);
     if (!next) return;
-    setActiveTab(next);
+    setSelectedTab(next);
     discardLocalDrafts();
   };
 
   const resetProcessing = async () => {
+    if (requestRef.current) return;
     const expectedRevision = currentSpectrumRevision();
     if (expectedRevision === null) {
       setConfirmReset(false);
       return;
     }
+    const request = beginRequest("mutation");
+    if (!request) return;
     setConfirmReset(false);
-    setBusy(true);
     setNotice("");
     onError("");
     try {
-      const reset = await resetNmrSpectrum(spectrum.id, expectedRevision);
+      const reset = await resetNmrSpectrum(spectrum.id, expectedRevision, resultRevision);
+      if (!ownsRequest(request)) return;
+      previewInputsRef.current = null;
       onSpectrumChanged(reset);
       onResultChanged(null);
       setPreviewSpectrum(null);
       setPreviewSourceRevision(null);
+      setPreviewResultRevision(null);
       setOriginalSpectrum(reset);
       setSpectrumView("current");
       setQualityBefore(null);
@@ -404,17 +556,26 @@ export default function NMRWorkbench({
       setProcessingBaseline(JSON.stringify(initial));
       setNotice(t.workbench.resetApplied);
     } catch (cause: unknown) {
+      if (!ownsRequest(request)) return;
       onError(cause instanceof ApiError && cause.status === 409
         ? t.manual.revisionConflict
         : cause instanceof Error ? cause.message : t.workbench.processingFailed);
     } finally {
-      setBusy(false);
+      finishRequest(request);
     }
   };
 
   const selectSpectrumView = async (
     nextView: "original" | "current" | "preview",
   ) => {
+    const pending = requestRef.current;
+    if (pending) {
+      if (pending.kind !== "original" || nextView === "original") return;
+      // Choosing another view withdraws the pending read's ownership.
+      pending.controller.abort();
+      requestRef.current = null;
+      setRequestKind(null);
+    }
     if (nextView === "preview") {
       if (previewSpectrum) setSpectrumView("preview");
       return;
@@ -427,16 +588,19 @@ export default function NMRWorkbench({
       setSpectrumView("original");
       return;
     }
-    setBusy(true);
+    const request = beginRequest("original");
+    if (!request) return;
     onError("");
     try {
-      const original = await getNmrSpectrumView(spectrum.id, "original");
+      const original = await getNmrSpectrumView(spectrum.id, "original", request.controller.signal);
+      if (!ownsRequest(request)) return;
       setOriginalSpectrum(original);
       setSpectrumView("original");
     } catch (cause: unknown) {
+      if (!ownsRequest(request)) return;
       onError(cause instanceof Error ? cause.message : t.workbench.processingFailed);
     } finally {
-      setBusy(false);
+      finishRequest(request);
     }
   };
 
@@ -467,31 +631,36 @@ export default function NMRWorkbench({
     ranges: Array<{ start: number; end: number }>,
     expectedRevision: number,
     forceOverwrite: boolean,
+    rangeText: string,
   ) => {
+    const request = beginRequest("mutation");
+    if (!request) return;
     setAnalysisOptions((prev) => ({ ...prev, multiplet_ranges: ranges }));
-    setBusy(true);
     onError("");
     try {
       const data = await analyzeSpectrum(
         spectrum.id,
         { ...analysisOptions, multiplet_ranges: ranges },
-        undefined,
+        request.controller.signal,
         expectedRevision,
         forceOverwrite,
       );
-      setMultipletRangeBaseline(multipletRangeText);
+      if (!ownsRequest(request)) return;
+      setMultipletRangeBaseline(rangeText);
       onResultChanged(data);
       setNotice(t.workbench.multipletsRebuilt.replace("{count}", String(ranges.length)));
     } catch (cause: unknown) {
+      if (!ownsRequest(request)) return;
       onError(cause instanceof ApiError && cause.status === 409
         ? t.manual.revisionConflict
         : cause instanceof Error ? cause.message : t.workbench.multipletFailed);
     } finally {
-      setBusy(false);
+      finishRequest(request);
     }
   };
 
   const applyMultipletRanges = () => {
+    if (requestRef.current) return;
     const ranges = multipletRangeText
       .split(/[;\n]+/)
       .map((chunk) => chunk.trim())
@@ -507,22 +676,24 @@ export default function NMRWorkbench({
     }
     const expectedRevision = result?.result_revision ?? 0;
     if (result?.metrics.manual_confirmed) {
-      setPendingMultipletRebuild({ ranges, expectedRevision });
+      setPendingMultipletRebuild({ ranges, expectedRevision, rangeText: multipletRangeText });
       return;
     }
-    void rebuildMultiplets(ranges, expectedRevision, false);
+    void rebuildMultiplets(ranges, expectedRevision, false, multipletRangeText);
   };
 
   const confirmMultipletRebuild = () => {
+    if (requestRef.current) return;
     const pending = pendingMultipletRebuild;
     setPendingMultipletRebuild(null);
     if (!pending) return;
-    void rebuildMultiplets(pending.ranges, pending.expectedRevision, true);
+    void rebuildMultiplets(pending.ranges, pending.expectedRevision, true, pending.rangeText);
   };
 
   const saveMultipletConfirmation = async () => {
     if (!result) return;
-    setBusy(true);
+    const request = beginRequest("mutation");
+    if (!request) return;
     setNotice("");
     onError("");
     try {
@@ -538,22 +709,34 @@ export default function NMRWorkbench({
         note: "NMR multiplet confirmation",
         expected_revision: result.result_revision ?? 0,
       });
+      if (!ownsRequest(request)) return;
       onResultChanged(saved);
       setMultipletRangeBaseline(multipletRangeText);
       setNotice(t.workbench.multipletSaved);
     } catch (e: unknown) {
+      if (!ownsRequest(request)) return;
       onError(e instanceof Error ? e.message : t.workbench.multipletSaveFailed);
     } finally {
-      setBusy(false);
+      finishRequest(request);
     }
   };
 
   const exportReport = async () => {
+    if (!mountedRef.current || exportRequestRef.current || requestRef.current) return;
+    const request = {};
+    exportRequestRef.current = request;
+    setExporting(true);
     onError("");
     try {
       await downloadMarkdownReport([spectrum.id], "ChemApp 1D NMR Report");
     } catch (e: unknown) {
+      if (!mountedRef.current || exportRequestRef.current !== request) return;
       onError(e instanceof Error ? e.message : t.action.reportFailed);
+    } finally {
+      if (mountedRef.current && exportRequestRef.current === request) {
+        exportRequestRef.current = null;
+        setExporting(false);
+      }
     }
   };
 
@@ -626,6 +809,12 @@ export default function NMRWorkbench({
       ? t.workbench.phase
       : "",
   ].filter(Boolean).join(", ") || t.workbench.noOperations;
+  const workbenchTabs = [
+    ["process", t.workbench.process],
+    ["review", t.workbench.review],
+    ["multiplets", t.workbench.multiplets],
+    ["report", t.workbench.confirmReport],
+  ] as const;
 
   return (
     <div className="nmr-workbench">
@@ -636,7 +825,7 @@ export default function NMRWorkbench({
         </div>
         <div className="workbench-actions">
           <button type="button" onClick={requestAnalysis} disabled={busy}>{busy ? t.workbench.busy : t.workbench.analyze}</button>
-          <button type="button" onClick={() => void exportReport()} disabled={!result}>{t.workbench.exportReport}</button>
+          <button type="button" onClick={() => void exportReport()} disabled={!result || busy || exporting}>{t.workbench.exportReport}</button>
         </div>
       </div>
 
@@ -659,7 +848,7 @@ export default function NMRWorkbench({
           type="button"
           aria-pressed={spectrumView === "current"}
           onClick={() => void selectSpectrumView("current")}
-          disabled={busy}
+          disabled={busy && requestKind !== "original"}
         >
           {t.workbench.currentView}
         </button>
@@ -668,7 +857,7 @@ export default function NMRWorkbench({
             type="button"
             aria-pressed={spectrumView === "preview"}
             onClick={() => void selectSpectrumView("preview")}
-            disabled={busy}
+            disabled={busy && requestKind !== "original"}
           >
             {t.workbench.previewView}
           </button>
@@ -681,11 +870,23 @@ export default function NMRWorkbench({
         <p className="preview-banner" role="status">{t.workbench.previewBanner}</p>
       )}
 
-      <div className="workbench-tabs" role="tablist" aria-label={t.workbench.tabsLabel}>
-        <button type="button" role="tab" aria-selected={activeTab === "process"} className={activeTab === "process" ? "active" : ""} onClick={() => requestTab("process")}>{t.workbench.process}</button>
-        <button type="button" role="tab" aria-selected={activeTab === "review"} className={activeTab === "review" ? "active" : ""} onClick={() => requestTab("review")} disabled={!result}>{t.workbench.review}</button>
-        <button type="button" role="tab" aria-selected={activeTab === "multiplets"} className={activeTab === "multiplets" ? "active" : ""} onClick={() => requestTab("multiplets")} disabled={!result}>{t.workbench.multiplets}</button>
-        <button type="button" role="tab" aria-selected={activeTab === "report"} className={activeTab === "report" ? "active" : ""} onClick={() => requestTab("report")} disabled={!result}>{t.workbench.confirmReport}</button>
+      <div className="workbench-tabs" role="tablist" aria-label={t.workbench.tabsLabel} onKeyDown={handleTabKeyDown}>
+        {workbenchTabs.map(([tab, label]) => (
+          <button
+            key={tab}
+            id={`${tabsId}-tab-${tab}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab}
+            aria-controls={`${tabsId}-panel-${tab}`}
+            tabIndex={activeTab === tab ? 0 : -1}
+            className={activeTab === tab ? "active" : ""}
+            onClick={() => requestTab(tab)}
+            disabled={busy || (tab !== "process" && !result)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {notice && <p className="workbench-notice" role="status" aria-live="polite">{notice}</p>}
@@ -695,8 +896,13 @@ export default function NMRWorkbench({
         </ul>
       )}
 
+      {/* Keep all panel references valid without mounting inactive editors. */}
+      {workbenchTabs.filter(([tab]) => tab !== activeTab).map(([tab]) => (
+        <div key={tab} {...tabPanelProps(tab)} />
+      ))}
+
       {activeTab === "process" && (
-        <div className="workbench-grid">
+        <div {...tabPanelProps("process")} className="workbench-grid">
           <section className="workbench-section">
             <h3>{t.workbench.processingTitle}</h3>
             {autoPhaseApplied && (
@@ -712,7 +918,7 @@ export default function NMRWorkbench({
             )}
             <div className="processing-grid">
               <label className="checkbox-control">
-                <input type="checkbox" checked={processing.baseline_correct}
+                <input disabled={processingLocked} type="checkbox" checked={processing.baseline_correct}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, baseline_correct: e.target.checked }))} />
                 {t.workbench.baselineCorrection}
               </label>
@@ -720,7 +926,7 @@ export default function NMRWorkbench({
                 {t.workbench.baselineMethod}
                 <select
                   value={processing.baseline_method}
-                  disabled={!processing.baseline_correct}
+                  disabled={processingLocked || !processing.baseline_correct}
                   onChange={(e) => setProcessing((prev) => ({
                     ...prev,
                     baseline_method: e.target.value as "asymmetric_least_squares" | "percentile",
@@ -735,19 +941,19 @@ export default function NMRWorkbench({
                   <label>
                     {t.workbench.baselineSmoothness}
                     <input type="number" min={1} step={1000000} value={processing.baseline_smoothness}
-                      disabled={!processing.baseline_correct}
+                      disabled={processingLocked || !processing.baseline_correct}
                       onChange={(e) => setProcessing((prev) => ({ ...prev, baseline_smoothness: Number(e.target.value) }))} />
                   </label>
                   <label>
                     {t.workbench.baselineAsymmetry}
                     <input type="number" min={0.000001} max={0.999999} step={0.001} value={processing.baseline_asymmetry}
-                      disabled={!processing.baseline_correct}
+                      disabled={processingLocked || !processing.baseline_correct}
                       onChange={(e) => setProcessing((prev) => ({ ...prev, baseline_asymmetry: Number(e.target.value) }))} />
                   </label>
                   <label>
                     {t.workbench.baselineIterations}
                     <input type="number" min={1} max={50} value={processing.baseline_iterations}
-                      disabled={!processing.baseline_correct}
+                      disabled={processingLocked || !processing.baseline_correct}
                       onChange={(e) => setProcessing((prev) => ({ ...prev, baseline_iterations: Number(e.target.value) }))} />
                   </label>
                 </>
@@ -755,91 +961,91 @@ export default function NMRWorkbench({
                 <label>
                   {t.workbench.baselinePercentile}
                   <input type="number" min={0} max={100} value={processing.baseline_percentile}
-                    disabled={!processing.baseline_correct}
+                    disabled={processingLocked || !processing.baseline_correct}
                     onChange={(e) => setProcessing((prev) => ({ ...prev, baseline_percentile: Number(e.target.value) }))} />
                 </label>
               )}
               <label className="checkbox-control">
-                <input type="checkbox" checked={processing.auto_reference}
+                <input disabled={processingLocked} type="checkbox" checked={processing.auto_reference}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, auto_reference: e.target.checked }))} />
                 {t.workbench.autoReferenceProcessing}
               </label>
               <label>
                 {t.workbench.referenceWindow}
                 <input type="number" min={0.01} max={1} step={0.01}
-                  value={processing.reference_window_ppm} disabled={!processing.auto_reference}
+                  value={processing.reference_window_ppm} disabled={processingLocked || !processing.auto_reference}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, reference_window_ppm: Number(e.target.value) }))} />
               </label>
               <label>
                 {t.workbench.referenceMinSnr}
                 <input type="number" min={1} max={1000} step={1}
-                  value={processing.reference_min_snr} disabled={!processing.auto_reference}
+                  value={processing.reference_min_snr} disabled={processingLocked || !processing.auto_reference}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, reference_min_snr: Number(e.target.value) }))} />
               </label>
               <label>
                 {t.workbench.currentReference}
-                <input value={processing.reference_current_ppm} disabled={processing.auto_reference}
+                <input value={processing.reference_current_ppm} disabled={processingLocked || processing.auto_reference}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, reference_current_ppm: e.target.value }))} placeholder={t.workbench.referenceExample} />
               </label>
               <label>
                 {t.workbench.targetPpm}
-                <input value={processing.reference_target_ppm} disabled={processing.auto_reference}
+                <input value={processing.reference_target_ppm} disabled={processingLocked || processing.auto_reference}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, reference_target_ppm: e.target.value }))} />
               </label>
               <label className="checkbox-control">
-                <input type="checkbox" checked={processing.normalize}
+                <input disabled={processingLocked} type="checkbox" checked={processing.normalize}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, normalize: e.target.checked }))} />
                 {t.workbench.normalize}
               </label>
               <label>
                 {t.workbench.normalizePpm}
-                <input value={processing.normalize_ppm}
+                <input disabled={processingLocked} value={processing.normalize_ppm}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, normalize_ppm: e.target.value }))} placeholder={t.workbench.normalizeHint} />
               </label>
               <label>
                 {t.workbench.smoothingWindow}
-                <input type="number" min={0} max={101} step={2} value={processing.smoothing_window}
+                <input disabled={processingLocked} type="number" min={0} max={101} step={2} value={processing.smoothing_window}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, smoothing_window: Number(e.target.value) }))} />
               </label>
               <label>
                 {t.workbench.cropMin}
-                <input value={processing.crop_min_ppm}
+                <input disabled={processingLocked} value={processing.crop_min_ppm}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, crop_min_ppm: e.target.value }))} placeholder={t.workbench.optional} />
               </label>
               <label>
                 {t.workbench.cropMax}
-                <input value={processing.crop_max_ppm}
+                <input disabled={processingLocked} value={processing.crop_max_ppm}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, crop_max_ppm: e.target.value }))} placeholder={t.workbench.optional} />
               </label>
               <label className="checkbox-control">
-                <input type="checkbox" checked={processing.invert}
+                <input disabled={processingLocked} type="checkbox" checked={processing.invert}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, invert: e.target.checked }))} />
                 {t.workbench.invert}
               </label>
               <label className="checkbox-control">
-                <input type="checkbox" checked={processing.auto_phase} disabled={!phaseAvailable}
+                <input type="checkbox" checked={processing.auto_phase} disabled={processingLocked || !phaseAvailable}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, auto_phase: e.target.checked }))} />
                 {t.workbench.autoPhase}
               </label>
               <label className="checkbox-control">
                 <input type="checkbox" checked={processing.auto_phase_first_order}
-                  disabled={!phaseAvailable || !processing.auto_phase}
+                  disabled={processingLocked || !phaseAvailable || !processing.auto_phase}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, auto_phase_first_order: e.target.checked }))} />
                 {t.workbench.autoPhaseFirstOrder}
               </label>
               <label>
                 {t.workbench.phaseZero}
-                <input type="number" step={0.5} value={processing.phase_zero_deg} disabled={!phaseAvailable || processing.auto_phase}
+                <input type="number" step={0.5} value={processing.phase_zero_deg} disabled={processingLocked || !phaseAvailable || processing.auto_phase}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, phase_zero_deg: Number(e.target.value) }))} />
               </label>
               <label>
                 {t.workbench.phaseFirst}
-                <input type="number" step={0.5} value={processing.phase_first_deg} disabled={!phaseAvailable || processing.auto_phase}
+                <input type="number" step={0.5} value={processing.phase_first_deg} disabled={processingLocked || !phaseAvailable || processing.auto_phase}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, phase_first_deg: Number(e.target.value) }))} />
               </label>
               <label>
                 {t.workbench.phasePivot}
-                <input value={processing.phase_pivot_ppm} disabled={!phaseAvailable || processing.auto_phase}
+                <input value={processing.phase_pivot_ppm} disabled={processingLocked || !phaseAvailable || processing.auto_phase}
                   onChange={(e) => setProcessing((prev) => ({ ...prev, phase_pivot_ppm: e.target.value }))} placeholder={t.workbench.phasePivotHint} />
               </label>
             </div>
@@ -929,7 +1135,7 @@ export default function NMRWorkbench({
       )}
 
       {result && activeTab === "review" && (
-        <>
+        <div {...tabPanelProps("review")} className="nmr-workbench">
           <QualityPanel quality={result.metrics.quality} />
           <ManualReviewPanel
             key={`${spectrum.id}:${result.result_revision ?? 0}:${manualDraftEpoch}`}
@@ -941,16 +1147,17 @@ export default function NMRWorkbench({
             onRequestPlotPick={setPlotPickTarget}
             onDirtyChange={setManualDirty}
           />
-        </>
+        </div>
       )}
 
       {result && activeTab === "multiplets" && (
-        <>
+        <div {...tabPanelProps("multiplets")} className="nmr-workbench">
           <div className="workbench-section">
             <h3>{t.workbench.manualMultipletRanges}</h3>
             <textarea
               aria-label={t.workbench.manualMultipletRanges}
               value={multipletRangeText}
+              disabled={busy || pendingMultipletRebuild !== null}
               onChange={(e) => setMultipletRangeText(e.target.value)}
               placeholder={t.workbench.multipletExample}
               rows={3}
@@ -959,11 +1166,11 @@ export default function NMRWorkbench({
             <button type="button" className="primary-inline" onClick={() => void saveMultipletConfirmation()} disabled={busy || !result.multiplets?.length}>{t.workbench.saveMultiplets}</button>
           </div>
           <NMRPanel result={result} />
-        </>
+        </div>
       )}
 
       {result && activeTab === "report" && (
-        <div className="workbench-grid">
+        <div {...tabPanelProps("report")} className="workbench-grid">
           <section className="workbench-section">
             <h3>{t.workbench.reviewStatus}</h3>
             <p className="summary">
@@ -971,11 +1178,11 @@ export default function NMRWorkbench({
                 ? t.workbench.reviewSaved.replace("{version}", displayText(result.metrics.manual_version) || "1")
                 : t.workbench.reviewNotSaved}
             </p>
-            <button type="button" className="primary-inline" onClick={() => void exportReport()}>{t.workbench.exportMarkdown}</button>
+            <button type="button" className="primary-inline" onClick={() => void exportReport()} disabled={busy || exporting}>{t.workbench.exportMarkdown}</button>
           </section>
           <section className="workbench-section">
             <h3>{t.workbench.structureAssistance}</h3>
-            <MLPredictionPanel spectrumId={spectrum.id} hasResult={true} technique={result.technique} result={result}
+            <MLPredictionPanel key={`${spectrum.id}:${resultRevision}`} spectrumId={spectrum.id} hasResult={true} technique={result.technique} result={result}
               nucleus={spectrum.parameters?.nucleus as string || ""} spectra={spectra}
               solvent={displayText(spectrum.metadata?.solvent || spectrum.parameters?.solvent)} />
           </section>
@@ -991,9 +1198,12 @@ export default function NMRWorkbench({
         busyLabel={t.workbench.busy}
         onConfirm={() => void applyProcessing()}
         onCancel={() => {
+          if (requestRef.current) return;
           setConfirmProcessing(false);
+          previewInputsRef.current = null;
           setPreviewSpectrum(null);
           setPreviewSourceRevision(null);
+          setPreviewResultRevision(null);
           setSpectrumView("current");
           setQualityBefore(null);
           setQualityAfter(null);

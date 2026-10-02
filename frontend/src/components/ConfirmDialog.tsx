@@ -1,17 +1,31 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
-// Count-based management of the page-level inert flag: several dialogs may
-// be open at the same time (now or in the future), so the flag is set when
-// the first dialog opens and cleared only when the last one closes.
-let openDialogCount = 0;
+interface OpenDialog {
+  element: HTMLDivElement;
+  returnFocus: HTMLElement | null;
+}
 
-const INERT_TARGET_SELECTOR = ".app-header, .app-main";
+// Only the topmost modal owns keyboard input. Retain the original inert state
+// so closing a dialog cannot accidentally unlock an already protected surface.
+const openDialogs: OpenDialog[] = [];
+const inertTargets = new Map<HTMLElement, boolean>();
+const FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-function setPageInert(inert: boolean) {
-  document.querySelectorAll<HTMLElement>(INERT_TARGET_SELECTOR).forEach((element) => {
-    if (inert) element.setAttribute("inert", "");
-    else element.removeAttribute("inert");
+function synchronizeModals() {
+  if (openDialogs.length > 0 && inertTargets.size === 0) {
+    document.querySelectorAll<HTMLElement>(".app-header, .app-main").forEach((element) => {
+      inertTargets.set(element, element.hasAttribute("inert"));
+      element.setAttribute("inert", "");
+    });
+  } else if (openDialogs.length === 0) {
+    inertTargets.forEach((wasInert, element) => {
+      if (!wasInert) element.removeAttribute("inert");
+    });
+    inertTargets.clear();
+  }
+  openDialogs.forEach(({ element }, index) => {
+    element.toggleAttribute("inert", index !== openDialogs.length - 1);
   });
 }
 
@@ -45,29 +59,45 @@ export default function ConfirmDialog({
   const titleId = useId();
   const messageId = useId();
 
+  const latest = useRef({ busy, onCancel });
+  useLayoutEffect(() => {
+    latest.current = { busy, onCancel };
+    if (open && busy && dialogRef.current?.contains(document.activeElement)) {
+      dialogRef.current.focus();
+    }
+  }, [busy, onCancel, open]);
+
   useEffect(() => {
-    if (!open) return;
-    const previouslyFocused = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    openDialogCount += 1;
-    if (openDialogCount === 1) setPageInert(true);
-    cancelRef.current?.focus();
+    if (!open || !dialogRef.current) return;
+    const element = dialogRef.current;
+    const entry: OpenDialog = {
+      element,
+      returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+    };
+    openDialogs.push(entry);
+    synchronizeModals();
+    if (latest.current.busy) element.focus();
+    else cancelRef.current?.focus();
+    const isTopmost = () => openDialogs.at(-1) === entry;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onCancel();
-      if (event.key !== "Tab" || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      ));
-      if (focusable.length === 0) {
+      if (!isTopmost()) return;
+      if (event.key === "Escape") {
         event.preventDefault();
-        dialogRef.current.focus();
-        return;
+        event.stopPropagation();
+        if (!latest.current.busy) latest.current.onCancel();
       }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(element.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
       const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      const last = focusable.at(-1);
+      if (!first || !last) {
+        event.preventDefault();
+        element.focus();
+      } else if (!element.contains(document.activeElement) || document.activeElement === element) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -78,11 +108,26 @@ export default function ConfirmDialog({
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      openDialogCount -= 1;
-      if (openDialogCount === 0) setPageInert(false);
-      previouslyFocused?.focus();
+      const wasTopmost = isTopmost();
+      const index = openDialogs.indexOf(entry);
+      // If a lower dialog is removed first, pass its opener to the dialog
+      // above it rather than restoring focus to a now-detached button later.
+      openDialogs.forEach((other) => {
+        if (other !== entry && other.returnFocus && element.contains(other.returnFocus)) {
+          other.returnFocus = entry.returnFocus;
+        }
+      });
+      if (index !== -1) openDialogs.splice(index, 1);
+      synchronizeModals();
+      if (!wasTopmost) return;
+      const target = entry.returnFocus;
+      if (target?.isConnected && !target.closest("[inert]")) target.focus();
+      else {
+        const remaining = openDialogs.at(-1)?.element;
+        (remaining?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR) ?? remaining)?.focus();
+      }
     };
-  }, [open, busy, onCancel]);
+  }, [open]);
 
   if (!open) return null;
 

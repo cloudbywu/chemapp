@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type PlotlyType from "plotly.js";
 import type { Data as PlotlyData, Layout as PlotlyLayout } from "plotly.js";
 import { useLang } from "../i18n/LangContext";
@@ -150,18 +150,27 @@ function fmtPos(pos: number, technique: string): string {
 
 // Dynamically load plotly.js to reduce initial bundle size
 let _plotlyModule: typeof PlotlyType | null = null;
+let _plotlyPromise: Promise<typeof PlotlyType> | null = null;
 async function getPlotly(): Promise<typeof PlotlyType> {
-  if (!_plotlyModule) {
-    const module = await import("../plotlyCustom");
-    const loaded = module as unknown as { default?: typeof PlotlyType };
-    _plotlyModule = loaded.default || (module as unknown as typeof PlotlyType);
+  if (_plotlyModule) return _plotlyModule;
+  if (!_plotlyPromise) {
+    _plotlyPromise = import("../plotlyCustom").then((module) => {
+      _plotlyModule = module.default;
+      return _plotlyModule;
+    }).catch((error: unknown) => {
+      // A failed chunk fetch must not permanently poison the retry button.
+      _plotlyPromise = null;
+      throw error;
+    });
   }
-  return _plotlyModule;
+  return _plotlyPromise;
 }
 
 export default function SpectrumViewer({ spectrum, result, integrationSelection, onIntegrationRangeSelected }: Props) {
   const { t } = useLang();
   const containerRef = useRef<HTMLDivElement>(null);
+  const activePlotRef = useRef<{ element: HTMLDivElement; plotly: typeof PlotlyType; ready: boolean } | null>(null);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const xReverse = spectrum.technique === "NMR";
   const channels = spectrum.parameters?.channels as ChannelData[] | undefined;
   const isNmr = spectrum.technique === "NMR" && !(channels && channels.length > 1);
@@ -180,13 +189,46 @@ export default function SpectrumViewer({ spectrum, result, integrationSelection,
     };
   }, [isNmr, spectrum]);
 
+  // Each request owns a separate plot element. An older asynchronous Plotly
+  // render can finish after a newer spectrum is selected; it must never write
+  // into that newer spectrum's plot or attach its selection callback there.
+  const renderRequest = useMemo(() => ({
+    displayData, spectrum, xReverse, result, channels, isNmr,
+    integrationSelection, onIntegrationRangeSelected,
+    selecting: t.viewer.selecting, retryAttempt,
+  }), [displayData, spectrum, xReverse, result, channels, isNmr,
+    integrationSelection, onIntegrationRangeSelected, t.viewer.selecting, retryAttempt]);
+  const [plotState, setPlotState] = useState<{
+    request: typeof renderRequest;
+    status: "ready" | "resetting" | "error";
+  } | null>(null);
+  const plotStatus = plotState?.request === renderRequest ? plotState.status : "loading";
+
   useEffect(() => {
+    const host = containerRef.current;
+    if (!host) return;
+    const { displayData, spectrum, xReverse, result, channels, isNmr,
+      integrationSelection, onIntegrationRangeSelected, selecting } = renderRequest;
+    const plotElement = document.createElement("div");
+    plotElement.style.width = "100%";
+    plotElement.style.height = "100%";
+    host.replaceChildren(plotElement);
     let cancelled = false;
     let Plotly: typeof PlotlyType | null = null;
+    let rendering = false;
+    let purged = false;
+    const purge = () => {
+      if (Plotly && !rendering && !purged) {
+        purged = true;
+        Plotly.purge(plotElement);
+      }
+    };
 
     void (async () => {
       Plotly = await getPlotly();
-      if (cancelled || !containerRef.current) return;
+      if (cancelled) return;
+      const activePlot = { element: plotElement, plotly: Plotly, ready: false };
+      activePlotRef.current = activePlot;
 
       const traces: Array<Partial<PlotlyData>> = [];
 
@@ -325,66 +367,91 @@ export default function SpectrumViewer({ spectrum, result, integrationSelection,
           y: 1.08,
           xanchor: "left",
           showarrow: false,
-          text: `${t.viewer.selecting}: ${integrationSelection.label}`,
+          text: `${selecting}: ${integrationSelection.label}`,
           font: { color: "#fbbf24", size: 12 },
         }] : undefined,
       };
 
-      await Plotly.react(containerRef.current, traces, layout, {
-        responsive: true, displayModeBar: true,
-        modeBarButtonsToRemove: integrationSelection ? ["lasso2d", "autoScale2d"] : ["lasso2d", "select2d", "autoScale2d"],
-      });
+      rendering = true;
+      try {
+        await Plotly.react(plotElement, traces, layout, {
+          responsive: true, displayModeBar: true,
+          modeBarButtonsToRemove: integrationSelection ? ["lasso2d", "autoScale2d"] : ["lasso2d", "select2d", "autoScale2d"],
+        });
+      } finally {
+        rendering = false;
+        if (cancelled) purge();
+      }
+      if (cancelled) return;
 
-      const plotDiv = containerRef.current as unknown as {
+      const plotDiv = plotElement as unknown as {
         on?: (name: string, handler: (event: unknown) => void) => void;
         removeAllListeners?: (name: string) => void;
       };
       plotDiv.removeAllListeners?.("plotly_selected");
       if (integrationSelection && onIntegrationRangeSelected) {
         plotDiv.on?.("plotly_selected", (event: unknown) => {
+          if (cancelled) return;
           const range = (event as { range?: { x?: [number, number] } | undefined } | null)?.range?.x;
           if (!range || range.length < 2) return;
           onIntegrationRangeSelected(Math.min(range[0], range[1]), Math.max(range[0], range[1]));
         });
       }
-    })();
+      activePlot.ready = true;
+      setPlotState({ request: renderRequest, status: "ready" });
+    })().catch((error: unknown) => {
+      if (cancelled) return;
+      console.error("Spectrum plot failed:", error);
+      purge();
+      setPlotState({ request: renderRequest, status: "error" });
+    });
 
-    return () => { cancelled = true; };
-  }, [displayData, spectrum, xReverse, result, channels, isNmr,
-      integrationSelection, onIntegrationRangeSelected, t.viewer.selecting]);
-
-  useEffect(() => {
-    const plotElement = containerRef.current;
     return () => {
-      if (plotElement && _plotlyModule) _plotlyModule.purge(plotElement);
+      cancelled = true;
+      if (activePlotRef.current?.element === plotElement) activePlotRef.current = null;
+      plotElement.remove();
+      purge();
     };
-  }, []);
+  }, [renderRequest]);
 
   const resetView = async () => {
-    if (!containerRef.current) return;
-    const Plotly = await getPlotly();
+    const activePlot = activePlotRef.current;
+    if (!activePlot?.ready || plotStatus !== "ready") return;
+    // Guard synchronously as well as disabling the button in React, so rapid
+    // repeated clicks cannot start overlapping relayout operations.
+    activePlot.ready = false;
+    setPlotState({ request: renderRequest, status: "resetting" });
     // plotly.js 4 的 relayout 类型只声明 Partial<Layout>，但运行时仍支持
     // "xaxis.range" 形式的更新键；交叉 Record<string, unknown> 保留该用法。
     type RelayoutUpdate = Partial<PlotlyLayout> & Record<string, unknown>;
-    if (isNmr && displayData.window) {
-      const update: RelayoutUpdate = {
-        "xaxis.range": [displayData.window.max, displayData.window.min],
-        "yaxis.range": displayData.yRange,
-      };
-      await Plotly.relayout(containerRef.current, update);
-    } else {
-      const update: RelayoutUpdate = {
-        "xaxis.autorange": true,
-        "yaxis.autorange": true,
-      };
-      await Plotly.relayout(containerRef.current, update);
+    try {
+      if (isNmr && displayData.window) {
+        const update: RelayoutUpdate = {
+          "xaxis.range": [displayData.window.max, displayData.window.min],
+          "yaxis.range": displayData.yRange,
+        };
+        await activePlot.plotly.relayout(activePlot.element, update);
+      } else {
+        const update: RelayoutUpdate = {
+          "xaxis.autorange": true,
+          "yaxis.autorange": true,
+        };
+        await activePlot.plotly.relayout(activePlot.element, update);
+      }
+      if (activePlotRef.current !== activePlot) return;
+      activePlot.ready = true;
+      setPlotState({ request: renderRequest, status: "ready" });
+    } catch (error: unknown) {
+      if (activePlotRef.current !== activePlot) return;
+      console.error("Spectrum reset failed:", error);
+      setPlotState({ request: renderRequest, status: "error" });
     }
   };
 
   return (
     <div className="spectrum-viewer">
       <div className="viewer-toolbar">
-        <button type="button" className="secondary-btn" onClick={() => void resetView()}>
+        <button type="button" className="secondary-btn" disabled={plotStatus !== "ready"} onClick={() => void resetView()}>
           {t.viewer.fullSpectrum}
         </button>
         {isNmr && !displayData.phaseCorrected && (
@@ -401,12 +468,26 @@ export default function SpectrumViewer({ spectrum, result, integrationSelection,
           {t.viewer.selectRange} {t.viewer.selectRangeKeyboard}
         </p>
       )}
-      <div
-        ref={containerRef}
-        role="img"
-        aria-label={t.viewer.plotAria.replace("{technique}", spectrum.technique)}
-        style={{ width: "100%", height: "400px" }}
-      />
+      <div className="viewer-plot-frame" style={{ position: "relative", height: "400px" }}>
+        <div
+          ref={containerRef}
+          role="img"
+          aria-label={t.viewer.plotAria.replace("{technique}", spectrum.technique)}
+          aria-busy={plotStatus === "loading" || plotStatus === "resetting"}
+          style={{ width: "100%", height: "100%", visibility: plotStatus === "loading" || plotStatus === "error" ? "hidden" : "visible" }}
+        />
+        {plotStatus === "loading" && (
+          <div className="viewer-plot-status" role="status" style={{ position: "absolute", inset: 0, display: "grid", placeContent: "center", textAlign: "center" }}>
+            {t.viewer.loading}
+          </div>
+        )}
+        {plotStatus === "error" && (
+          <div className="viewer-plot-status viewer-plot-error" role="alert" style={{ position: "absolute", inset: 0, display: "grid", placeContent: "center", gap: 12, textAlign: "center" }}>
+            <p>{t.viewer.renderFailed}</p>
+            <button type="button" className="secondary-btn" onClick={() => setRetryAttempt((attempt) => attempt + 1)}>{t.viewer.retry}</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -193,6 +193,10 @@ export default function MLPredictionPanel({
       setError(t.prediction.noSpectrum);
       return;
     }
+    if (!combined && nucleus !== "1H" && nucleus !== "13C") {
+      setError(t.prediction.unsupportedNucleus);
+      return;
+    }
     if (combined && !pairedId) {
       setError(t.prediction.choosePaired);
       return;
@@ -212,28 +216,32 @@ export default function MLPredictionPanel({
         forbidden_smarts: nonEmptyLines(forbiddenSmarts),
       };
       if (combined) {
-        setResponse(await elucidateCombined(
+        const data = await elucidateCombined(
           spectrumId,
           pairedId,
           formula.trim() || undefined,
           generateExperimental,
           controller.signal,
           constraints,
-        ));
+        );
+        if (abortRef.current === controller && !controller.signal.aborted) setResponse(data);
       } else {
         const peaks = prepareObservedPeaks();
-        setResponse(await elucidateStructure({
+        const data = await elucidateStructure({
           peaks_1h: nucleus !== "13C" ? peaks : [],
           peaks_13c: nucleus === "13C" ? peaks : [],
           formula: formula.trim() || undefined,
           solvent: solvent || undefined,
           generate_experimental: generateExperimental,
+          spectrum_1h_id: generateExperimental && nucleus === "1H" ? spectrumId : undefined,
           ...constraints,
           top_k: 5,
-        }, controller.signal));
+        }, controller.signal);
+        if (abortRef.current === controller && !controller.signal.aborted) setResponse(data);
       }
     } catch (cause: unknown) {
-      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      if (abortRef.current !== controller || controller.signal.aborted
+        || (cause instanceof DOMException && cause.name === "AbortError")) return;
       setError(cause instanceof Error ? cause.message : t.prediction.failed);
     } finally {
       if (abortRef.current === controller) {
@@ -269,7 +277,36 @@ export default function MLPredictionPanel({
     : "unknown";
   const decision = response?.decision;
   const abstained = decision?.action === "abstain";
-  const top1Probability = response?.top1_calibrated_probability;
+  // A numeric field alone is not authorization to make a probability claim.
+  // Require consistent calibration metadata and a completed external holdout;
+  // malformed, partial, or policy-closed responses remain relative rankings.
+  const calibration = record(response?.calibrated_probability);
+  const rawTop1Probability = response?.top1_calibrated_probability;
+  const top1Probability = calibration?.external_holder_pending === false
+    && calibration.automatic_selection_allowed === false
+    && calibration.probability === rawTop1Probability
+    && typeof rawTop1Probability === "number"
+    && Number.isFinite(rawTop1Probability)
+    && rawTop1Probability >= 0 && rawTop1Probability <= 1
+      ? rawTop1Probability
+      : null;
+  const generation = response?.generation;
+  const generationStatusLabels: Record<string, string> = {
+    completed: t.prediction.generationCompleted,
+    generation_unavailable: t.prediction.generationUnavailable,
+    not_requested: t.prediction.generationNotRequested,
+  };
+  const generationStatusText = generationStatusLabels[displayText(generation?.status)]
+    || t.prediction.unknownEvidence;
+  const generationInputLabels: Record<string, string> = {
+    "13c_peaks": t.prediction.inputCarbonPeaks,
+    "1h_peaks": t.prediction.inputProtonPeaks,
+    "1h_spectrum": t.prediction.inputProtonSpectrum,
+  };
+  const inputLabel = (value: string) => value.split("+")
+    .map((item) => generationInputLabels[item] || item).join(" + ");
+  const ignoredInputs = Array.isArray(generation?.ignored_modalities)
+    ? generation.ignored_modalities.map(displayText).filter(Boolean) : [];
   const forwardModel = response?.forward_model;
   const forwardStatusLabels: Record<string, string> = {
     completed: t.prediction.forwardCompleted,
@@ -443,7 +480,7 @@ export default function MLPredictionPanel({
           {(response.warnings || []).length > 0 && (
             <section className="prediction-warnings" aria-labelledby={`${formulaId}-warnings`}>
               <h4 id={`${formulaId}-warnings`}>{t.prediction.warnings}</h4>
-              <ul>{response.warnings?.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+              <ul>{response.warnings?.map((warning) => <li key={warning}>{warning === "13c_shifts_use_boundary_bins" ? t.prediction.carbonBoundaryWarning : warning}</li>)}</ul>
             </section>
           )}
 
@@ -562,6 +599,27 @@ export default function MLPredictionPanel({
             )}
           </section>
 
+          {generation && generation.status !== "not_requested" && (
+            <section aria-labelledby={`${formulaId}-generation`}>
+              <h4 id={`${formulaId}-generation`}>{t.prediction.generationDetails}</h4>
+              <p>{t.prediction.generationStatus}: {generationStatusText}</p>
+              {generation.error_code && <p>{t.prediction.decisionReason}: {displayText(generation.error_code)}</p>}
+              <dl>
+                <dt>{t.prediction.generationModel}</dt>
+                <dd>{displayText(generation.model?.name || generation.generator) || "—"}
+                  {generation.model?.variant ? ` · ${displayText(generation.model.variant)}` : ""}</dd>
+                <dt>{t.prediction.generationInput}</dt>
+                <dd>{inputLabel(displayText(generation.input_mode)) || "—"}</dd>
+                <dt>{t.prediction.generationSchema}</dt>
+                <dd>{displayText(generation.prompt_schema) || "—"}</dd>
+                {ignoredInputs.length > 0 && <>
+                  <dt>{t.prediction.generationIgnored}</dt>
+                  <dd>{ignoredInputs.map(inputLabel).join(", ")}</dd>
+                </>}
+              </dl>
+            </section>
+          )}
+
           {experimental.length > 0 && (
             <details className="experimental-hypotheses">
               <summary>{t.prediction.experimentalHypotheses}</summary>
@@ -570,6 +628,7 @@ export default function MLPredictionPanel({
                 {experimental.map((candidate) => (
                   <li key={`${candidate.rank}-${candidate.smiles}`}>
                     <code>{candidate.smiles}</code>
+                    {candidate.source && <span> · {candidate.source}</span>}
                   </li>
                 ))}
               </ol>
