@@ -411,4 +411,5 @@ class TestEnsembleLazyDevice:
         import app.ml.models.ensemble as ensemble
 
         model = ensemble.NMREnsembleClassifier(2)
-        assert next(model.parameters()).device.type == "cpu"
+        # 构造设备应与 get_device() 解析一致（CI/WSL 可能有 CUDA，不能钉死 cpu）
+        assert next(model.parameters()).device.type == ensemble.get_device().type

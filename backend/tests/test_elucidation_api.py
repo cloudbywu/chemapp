@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+from pathlib import Path
 
 import app.ml.forward_v1.csp5_scorer as csp5_scorer_module
 import app.ml.forward_v1.factory as forward_factory
@@ -607,8 +608,9 @@ def test_candidate_provider_path_points_to_backend_data(monkeypatch) -> None:
     providers = route._cached_candidate_providers()
 
     assert providers
-    assert "backend\\data\\derived\\nmr-candidate-generation-v2" in captured[
-        "pubchem"
-    ]
-    assert "backend\\data\\nmr_spectral_index_v2.sqlite" in captured["index"]
-    assert "backend\\app\\data" not in captured["index"]
+    # 跨平台断言：不依赖 Windows 反斜杠分隔符（Linux 上路径为 POSIX 形式）。
+    pubchem_parts = Path(captured["pubchem"]).parts
+    assert pubchem_parts[-4:-1] == ("data", "derived", "nmr-candidate-generation-v2")
+    index_parts = Path(captured["index"]).parts
+    assert index_parts[-2:] == ("data", "nmr_spectral_index_v2.sqlite")
+    assert "app" not in index_parts
