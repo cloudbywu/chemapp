@@ -1,0 +1,93 @@
+global_args:
+  ngpus: 1
+  dtype: float32
+  savedir: "checkpoints"
+  seed: 42
+
+data:
+  spectra_file: 
+    - null #Ignore
+  label_file: 
+    - null #Populate
+  smiles_file: 
+    - null #Populate
+  input_generator: "SubstructureRepresentationOneIndexed"
+  input_generator_addn_args: {}
+  target_generator: "SMILESRepresentationTokenized"
+  target_generator_addn_args: {}
+  alphabet: null
+  front_load_data_processing: true
+  eps: 0.005
+
+model:
+  model_type: "TransformerModel"
+  load_model: null
+  model_args:
+    src_embed: "nn.embed"
+    src_embed_options: {}
+    tgt_embed: "nn.embed"
+    tgt_embed_options: {}
+    src_forward_function: "src_fwd_fxn_basic"
+    tgt_forward_function: "tgt_fwd_fxn_basic"
+    source_size: null #Populate
+    target_size: null #Populate
+    d_model: 128
+    dim_feedforward: 1024
+    src_pad_token: null #Populate
+    tgt_pad_token: null #Populate
+
+training:
+  nepochs: 500
+  top_checkpoints_n: 10
+  checkpoint_loss_metric: 'val'
+  write_freq: 100
+  test_freq: 10
+  prev_epochs: 0
+  splits: 
+    - null #Populate
+  train_size: 0.8
+  val_size: 0.1
+  test_size: 0.1
+  optimizer: 'Adam'
+  optimizer_args:
+    lr: 0.00001
+    betas: [0.9, 0.98]
+    eps: 1.0e-09
+    weight_decay: 1.0e-05
+  scheduler: null
+  dloader_args:
+    shuffle: true
+    batch_size: 32
+  loss_fn: "CrossEntropyLoss"
+  loss_fn_args: 
+    ignore_index: null
+
+analysis:
+  analysis_type: "SMILES"
+  pattern: "predictions_dataset_0_[0-9]+.h5"
+  f_addn_args: 
+    substructures: null #Populate
+
+inference:
+  model_selection: "lowest"
+  splits: 
+    - null #Populate
+  train_size: 0.8
+  val_size: 0.1
+  test_size: 0.1
+  dloader_args:
+    shuffle: false
+    batch_size: 4096
+  sets_to_run: ['test']
+  run_inference_args: 
+    pred_gen_fn: 'infer_transformer_model'
+    pred_gen_opts:
+      num_pred_per_tgt: 15
+      sample_val: 5
+      tgt_start_token: null #Populate
+      tgt_stop_token: null #Populate
+      track_gradients: true
+      alphabet: null #Populate
+      decode: true
+      infer_fwd_fxn: generic
+    write_freq: 100

@@ -47,6 +47,7 @@ backend/quarantine/
 
 # Large model and raw dataset artifacts
 *.pt
+*.ckpt
 *.safetensors
 *.sd
 *.sql.gz

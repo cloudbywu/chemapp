@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
-from pathlib import Path
 
 import app.ml.forward_v1.csp5_scorer as csp5_scorer_module
 import app.ml.forward_v1.factory as forward_factory
@@ -169,6 +168,9 @@ def test_predict_does_not_load_experimental_generator_by_default(tmp_path, monke
 
 def test_predict_runs_experimental_generator_only_when_requested(tmp_path, monkeypatch):
     _reference_index(tmp_path, monkeypatch)
+    # 该测试钉住 legacy T5 生成路径（_safe_generate mock）；NMR2Struct 分派
+    # 路径由 test_nmr2struct_generator.py 覆盖。
+    monkeypatch.setenv("CHEMAPP_NMR_GENERATOR", "t5")
     called = False
 
     def generate(*_args, **_kwargs):
@@ -265,6 +267,8 @@ def _configure_shadow(monkeypatch):
 
 def test_forward_shadow_adds_diagnostics_without_changing_ranking(monkeypatch):
     _configure_shadow(monkeypatch)
+    # 该测试钉住 legacy T5 生成路径（_safe_generate mock）。
+    monkeypatch.setenv("CHEMAPP_NMR_GENERATOR", "t5")
     ranked = _shadow_ranked_result()
     original_candidate = deepcopy(ranked["candidates"][0])
     generated_smiles = []
@@ -446,8 +450,8 @@ def test_forward_status_does_not_start_sidecar(monkeypatch):
     assert status["quantile_enabled"] is False
     external = response.json()["external_smoke_benchmark"]
     if not route.EXTERNAL_SMOKE_STATUS_PATH.is_file():
-        # This repository does not ship the docs/ smoke artifact; the endpoint
-        # must fail closed instead of fabricating a status.
+        # 精简发行版（如公开仓库）不附带 docs/ 下的 smoke 清单工件；
+        # 端点必须 fail-closed 报 unavailable 而不是编造状态。
         assert external["status"] == "unavailable"
         assert external["accuracy_eligibility"]["headline_accuracy_allowed"] is False
         return
@@ -603,13 +607,8 @@ def test_candidate_provider_path_points_to_backend_data(monkeypatch) -> None:
     providers = route._cached_candidate_providers()
 
     assert providers
-    pubchem_path = Path(captured["pubchem"])
-    assert pubchem_path.parts[-3:] == (
-        "data",
-        "derived",
-        "nmr-candidate-generation-v2",
-    ) or pubchem_path.parts[-4:-1] == ("data", "derived", "nmr-candidate-generation-v2")
-    index_path = Path(captured["index"])
-    assert index_path.name == "nmr_spectral_index_v2.sqlite"
-    assert "backend" in index_path.parts
-    assert "app" not in index_path.parts
+    assert "backend\\data\\derived\\nmr-candidate-generation-v2" in captured[
+        "pubchem"
+    ]
+    assert "backend\\data\\nmr_spectral_index_v2.sqlite" in captured["index"]
+    assert "backend\\app\\data" not in captured["index"]

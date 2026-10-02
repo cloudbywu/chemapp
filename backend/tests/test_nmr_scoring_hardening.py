@@ -142,8 +142,11 @@ def test_evidence_is_weak_when_errors_are_near_tolerance_despite_full_recall(
     conn.commit()
     conn.close()
 
+    # 13C offsets are kept at ~95% of the 13C match tolerance (2.85/3.0),
+    # mirroring the original 2.1/2.2 construction; the 1H offsets stay at
+    # ~94% of the 1H tolerance (0.17/0.18).
     result = elucidation.rank_candidates(
-        peaks_13c=[{"shift": 102.1}, {"shift": 122.1}],
+        peaks_13c=[{"shift": 102.85}, {"shift": 122.85}],
         peaks_1h=[{"shift": 1.17}, {"shift": 2.17}],
         formula="C2H6",
     )

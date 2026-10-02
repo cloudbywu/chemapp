@@ -106,7 +106,17 @@ def _connect() -> sqlite3.Connection:
 # signals are already individual resonances.  For 13C, collapse only numerical
 # duplicates rather than chemically distinct close signals.
 _RESONANCE_GROUP_TOLERANCES = {"1H": 0.035, "13C": 0.0001}
-_MATCH_TOLERANCES = {"1H": 0.18, "13C": 2.2}
+_MATCH_TOLERANCES = {"1H": 0.18, "13C": 3.0}
+# Heuristic score composition (recall / reference coverage / count balance /
+# exponential error term).  Module-level so calibration experiments can sweep
+# them; production values were validated by the perturbation harness in
+# backend/reports/ml_eval/ (clean top-1 must stay 1.0 on the paired baseline).
+_SCORE_WEIGHTS = {
+    "recall": 0.40,
+    "reference_coverage": 0.20,
+    "count_balance": 0.15,
+    "error_score": 0.25,
+}
 
 
 def _peak_values(peaks: list[Any]) -> list[float]:
@@ -602,6 +612,33 @@ def _records_from_rows(rows: list[tuple[Any, ...]]) -> tuple[dict[str, Any], ...
     return tuple(records)
 
 
+@lru_cache(maxsize=8)
+def _normalized_records_cached(
+    index_path: str, mtime_ns: int, size: int, limit: int
+) -> tuple[tuple[list[float], list[float]], ...]:
+    """Precompute per-record normalised peak lists, cached alongside the rows.
+
+    Reference-side normalisation is deterministic, so computing it once per
+    index (instead of once per query per record) preserves scoring exactly
+    while removing the dominant per-record cost of rank_candidates.
+    """
+
+    records = _load_records_cached(index_path, mtime_ns, size, limit)
+    return tuple(
+        (
+            _normalise_resonance_shifts(rec["peaks_13c"], "13C"),
+            _normalise_resonance_shifts(rec["peaks_1h"], "1H"),
+        )
+        for rec in records
+    )
+
+
+def _normalized_records(
+    index_path: str, mtime_ns: int, size: int, limit: int
+) -> tuple[tuple[list[float], list[float]], ...]:
+    return _normalized_records_cached(index_path, mtime_ns, size, limit)
+
+
 def _load_records(limit: int = 0) -> list[dict[str, Any]]:
     ensure_quick_index()
     path = _index_path()
@@ -673,10 +710,10 @@ def _match_score(query: list[float], reference: list[float], tolerance: float, n
     balance = 1.0 - min(abs(len(query) - len(reference)) / max(len(query), len(reference), 1), 1.0)
     err_score = float(np.exp(-np.mean(errors) / max(tolerance, 1e-6)))
     score = nucleus_weight * (
-        0.50 * recall
-        + 0.25 * reference_coverage
-        + 0.15 * balance
-        + 0.10 * err_score
+        _SCORE_WEIGHTS["recall"] * recall
+        + _SCORE_WEIGHTS["reference_coverage"] * reference_coverage
+        + _SCORE_WEIGHTS["count_balance"] * balance
+        + _SCORE_WEIGHTS["error_score"] * err_score
     )
     return {
         "score": score,
@@ -698,11 +735,25 @@ def _feature_vector(
     q1h: list[float],
     rec: dict[str, Any],
     formula_constraint: str | None = None,
+    *,
+    _query_norm: tuple[list[float], list[float]] | None = None,
+    _ref_norm: tuple[list[float], list[float]] | None = None,
 ) -> tuple[list[float], dict[str, Any]]:
-    q13 = _normalise_resonance_shifts(q13, "13C")
-    q1h = _normalise_resonance_shifts(q1h, "1H")
-    ref13 = _normalise_resonance_shifts(rec["peaks_13c"], "13C")
-    ref1h = _normalise_resonance_shifts(rec["peaks_1h"], "1H")
+    # _query_norm/_ref_norm let hot paths (rank_candidates scanning tens of
+    # thousands of records) hoist the deterministic normalisation out of the
+    # per-record loop.  The values must be produced by
+    # _normalise_resonance_shifts on the same inputs, so scoring stays
+    # bit-identical to computing them here.
+    if _query_norm is not None:
+        q13, q1h = _query_norm
+    else:
+        q13 = _normalise_resonance_shifts(q13, "13C")
+        q1h = _normalise_resonance_shifts(q1h, "1H")
+    if _ref_norm is not None:
+        ref13, ref1h = _ref_norm
+    else:
+        ref13 = _normalise_resonance_shifts(rec["peaks_13c"], "13C")
+        ref1h = _normalise_resonance_shifts(rec["peaks_1h"], "1H")
     s13 = _match_score(q13, ref13, tolerance=_MATCH_TOLERANCES["13C"], nucleus_weight=1.0)
     s1h = _match_score(q1h, ref1h, tolerance=_MATCH_TOLERANCES["1H"], nucleus_weight=1.0)
     formula_match = 1.0 if formula_constraint and _formula_key(rec.get("formula")) == _formula_key(formula_constraint) else 0.0
@@ -964,13 +1015,32 @@ def rank_candidates(
     if not q13 and not q1h:
         raise ValueError("No NMR peaks provided")
 
+    # Hoist the query-side second normalisation out of the per-record loop.
+    # _feature_vector historically re-normalised the (already normalised)
+    # query for every record; computing it once here is bit-identical.
+    query_norm = (
+        _normalise_resonance_shifts(q13, "13C"),
+        _normalise_resonance_shifts(q1h, "1H"),
+    )
     formula_info = parse_formula(formula)
     if formula_info is not None:
         # Formula filtering happens in SQL and before any limit.  It is a hard
         # chemical constraint; zero matches must never fall back to all records.
         records = _load_records_by_formula(formula_info.canonical)
+        ref_norms = [
+            (
+                _normalise_resonance_shifts(rec["peaks_13c"], "13C"),
+                _normalise_resonance_shifts(rec["peaks_1h"], "1H"),
+            )
+            for rec in records
+        ]
     else:
         records = _load_records(limit=max_records)
+        index_path = _index_path()
+        stat = index_path.stat()
+        ref_norms = _normalized_records(
+            str(index_path), stat.st_mtime_ns, stat.st_size, max_records
+        )
 
     modality = "1h+13c" if q1h and q13 else "1h" if q1h else "13c"
     ranker_bundle = _load_ranker()
@@ -1007,8 +1077,15 @@ def rank_candidates(
 
     candidate_rows = []
     candidate_features = []
-    for rec in records:
-        features, breakdown = _feature_vector(q13, q1h, rec, formula_constraint=formula)
+    for rec, ref_norm in zip(records, ref_norms, strict=True):
+        features, breakdown = _feature_vector(
+            q13,
+            q1h,
+            rec,
+            formula_constraint=formula,
+            _query_norm=query_norm,
+            _ref_norm=ref_norm,
+        )
         s13 = breakdown["c13"]
         s1h = breakdown["h1"]
         score = None

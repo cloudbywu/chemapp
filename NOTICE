@@ -109,3 +109,19 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
+
+NMR2Struct (vendored code)
+--------------------------
+
+This repository vendors the NMR2Struct inference code (backend/vendor/nmr2struct/),
+licensed under the MIT License (see backend/vendor/nmr2struct/LICENSE):
+
+Hu, Frank; Chen, Michael S.; Rotskoff, Grant M.; Kanan, Matthew W.;
+Markland, Thomas E. (2024), "Accurate and efficient structure elucidation
+from routine one-dimensional NMR spectra using multitask machine learning",
+ACS Central Science, https://doi.org/10.1021/acscentsci.4c01132.
+
+Source: https://github.com/MarklandGroup/NMR2Struct
+The vendored copy is used only for the optional experimental structure
+generator (CHEMAPP_NMR_GENERATOR); model checkpoints (*.pt) are not tracked
+in git and must be obtained from the upstream repository.

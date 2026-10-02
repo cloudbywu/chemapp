@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+exclude = ['checkpoints', 'example_configs']
+
+[project]
+name = "NMR2Struct"
+version = "0.0.1"
+authors = [
+  { name="Frank Hu", email="frankhu@stanford.edu" },
+]
+description = "NMR structure elucidation"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/FranklinHu1/NMR2Struct"
+
+[project.scripts]
+nmr_train = "nmr.scripts.run_nmr_training:main"
+nmr_train_lightning = "nmr.scripts.train_lightning:main"
+nmr_infer = "nmr.scripts.run_nmr_inference:main"
+nmr_analyze = "nmr.scripts.run_nmr_analysis:main"
+modify_config_auto_restart = "nmr.scripts.modify_config_auto_restart:main"
+available_models = "nmr.models:get_all_models"
+input_formats = "nmr.data:get_input_generators"
+target_formats = "nmr.data:get_target_generators"
+network_components = "nmr.networks:get_component_report"
+nmr_infer_single_spectrum = "nmr.scripts.run_nmr_inference_single_spectrum:main"

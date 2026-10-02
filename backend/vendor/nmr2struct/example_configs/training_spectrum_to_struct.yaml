@@ -1,0 +1,123 @@
+global_args:
+  ngpus: 1
+  dtype: float32
+  savedir: "checkpoints"
+  seed: 42
+
+data:
+  spectra_file: 
+    - null #Populate
+  label_file: 
+    - null #Populate
+  smiles_file: 
+    - null #Populate
+  input_generator: "SpectrumRepresentationUnprocessed"
+  input_generator_addn_args: {}
+  target_generator: "SMILESRepresentationTokenizedWithSubstructs"
+  target_generator_addn_args: {}
+  alphabet: null #Populate
+  front_load_data_processing: True
+  eps: 0.005
+
+model:
+  model_type: "MultiTaskModel"
+  load_model: null
+  model_args:
+    src_embed: ConvolutionalEmbedding
+    src_embed_options:
+      d_model: 128
+      n_hnmr_features: 28000
+      n_cnmr_features: 80
+      use_hnmr: True
+      use_cnmr: True
+    forward_fxn: src_fwd_fxn_conv_embedding
+    substructure_model: "EncoderModel"
+    substructure_model_args:
+      d_model: 128
+      d_out: 957
+      dim_feedforward: 1024
+      nhead: 4
+      num_layers: 4
+      output_head: SingleLinear
+      output_head_opts:
+        d_model: 128
+        d_out: 957
+      pooler: SeqPool
+      pooler_opts:
+        d_model: 128
+      source_size: null #Populate
+      src_embed: null
+      src_embed_options: {}
+      src_forward_function: src_fwd_fxn_packed_tensor
+      src_pad_token: null
+    structure_model: "TransformerModel"
+    structure_model_args: 
+      src_embed: null
+      src_embed_options: {}
+      tgt_embed: "nn.embed"
+      tgt_embed_options: {}
+      src_forward_function: "src_fwd_fxn_packed_tensor"
+      tgt_forward_function: "tgt_fwd_fxn_basic"
+      source_size: null #Populate
+      target_size: null #Populate
+      d_model: 128
+      dim_feedforward: 1024
+      src_pad_token: null #Populate
+      tgt_pad_token: null #Populate
+    substructure_model_ckpt: null
+    structure_model_ckpt: #Populate
+
+training:
+  nepochs: 1500
+  top_checkpoints_n: 10
+  checkpoint_loss_metric: 'val_loss_0'
+  write_freq: 100
+  test_freq: 10
+  prev_epochs: 0
+  splits: 
+    - '/data2/scratch/frankhu/NMRExps/MNOVA_recomputed_spectra_batched/recomputed_data/no_stereochem_version_V2/no_stereochem_147k_split_indices.p'
+  train_size: 0.8
+  val_size: 0.1
+  test_size: 0.1
+  optimizer: 'Adam'
+  optimizer_args:
+    lr: 0.00001
+  scheduler: null
+  dloader_args:
+    batch_size: 64
+    shuffle: true
+  loss_fn: "MultiTaskLoss"
+  loss_fn_args: 
+    ignore_index: null
+    substructure_weight: 1
+    structure_weight: 1
+
+analysis:
+  analysis_type: "SMILES"
+  pattern: "predictions_dataset_0_[0-9]+.h5"
+  f_addn_args: 
+    substructures: "/home/frankhu/NMRNewExps/h5data/substructures_957.pkl"
+
+inference:
+  model_selection: lowest
+  splits: 
+    - '/data2/scratch/frankhu/NMRExps/MNOVA_recomputed_spectra_batched/recomputed_data/no_stereochem_version_V2/no_stereochem_147k_split_indices.p'
+  train_size: 0.8
+  val_size: 0.1
+  test_size: 0.1
+  dloader_args:
+    shuffle: false
+    batch_size: 1024
+  sets_to_run: ['test']
+  run_inference_args: 
+    pred_gen_fn: 'infer_transformer_model'
+    pred_gen_opts:
+      num_pred_per_tgt: 15
+      sample_val: 5
+      tgt_start_token: null
+      tgt_stop_token: null
+      track_gradients: true
+      alphabet: metadatas/alphabet.npy
+      decode: true
+      infer_fwd_fxn: multitask
+    write_freq: 100

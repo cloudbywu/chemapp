@@ -895,6 +895,74 @@ def _predict_from_peaks(
     }
 
 
+def _dispatch_generation(
+    p13: list[dict],
+    p1h: list[dict],
+    formula: str | None,
+    top_k: int,
+    num_beams: int,
+) -> dict:
+    """Select the experimental structure generator.
+
+    CHEMAPP_NMR_GENERATOR picks the generator: "nmr2struct" forces the
+    vendored NMR2Struct model, "t5" forces the legacy T5 path, and "auto"
+    (default) prefers NMR2Struct when its checkpoint is present and falls
+    back to T5 otherwise.  Every failure mode degrades to the same
+    unavailable payload instead of raising.
+    """
+
+    choice = os.environ.get("CHEMAPP_NMR_GENERATOR", "auto").strip().casefold()
+    if choice not in {"auto", "nmr2struct", "t5"}:
+        choice = "auto"
+    use_nmr2struct = choice == "nmr2struct"
+    if choice == "auto":
+        from app.ml.nmr2struct_generator import available as nmr2struct_available
+
+        use_nmr2struct = nmr2struct_available()
+    if use_nmr2struct:
+        from app.ml import nmr2struct_generator
+
+        shifts = []
+        for peak in p13:
+            try:
+                shifts.append(float(peak.get("shift")))
+            except (TypeError, ValueError, AttributeError):
+                continue
+        result = nmr2struct_generator.generate_candidates(
+            shifts, formula=formula, top_k=top_k
+        )
+        if result.get("status") == "ok":
+            decoded = [
+                str(candidate.get("smiles"))
+                for candidate in result.get("candidates", [])
+                if isinstance(candidate, dict) and candidate.get("smiles")
+            ]
+            candidates, validation = validate_generated_smiles(
+                decoded, formula=formula
+            )
+            return {
+                "status": "completed",
+                "inference_time_ms": result.get("inference_time_ms", 0),
+                "candidates": candidates,
+                "validation": validation,
+                "prompt_schema": "nmr2struct-13c-peaks-v1",
+                "generator": "nmr2struct",
+            }
+        if choice == "nmr2struct":
+            return {
+                "status": "generation_unavailable",
+                "inference_time_ms": result.get("inference_time_ms", 0),
+                "candidates": [],
+                "error_code": str(result.get("reason") or "generation_failed"),
+                "generator": "nmr2struct",
+            }
+        logger.info("NMR2Struct unavailable (%s); falling back to T5",
+                    result.get("reason"))
+    generated = _safe_generate(p13, p1h, formula, top_k, num_beams)
+    generated["generator"] = "t5"
+    return generated
+
+
 def _safe_generate(
     p13: list[dict],
     p1h: list[dict],
@@ -1332,7 +1400,7 @@ def predict_structure(request: PredictRequest):
     formula = formula_info.canonical if formula_info else None
     if request.generate_experimental:
         generation_count = min(max(request.top_k, 5), request.num_beams)
-        generated = _safe_generate(
+        generated = _dispatch_generation(
             p13,
             p1h,
             formula,
@@ -1344,7 +1412,7 @@ def predict_structure(request: PredictRequest):
             "status": "not_requested",
             "inference_time_ms": 0,
             "candidates": [],
-            "reason": "Experimental T5 generation is disabled by default.",
+            "reason": "Experimental structure generation is disabled by default.",
         }
     generated_smiles = [c["smiles"] for c in generated.get("candidates", []) if c.get("smiles")]
     forward_scorer = _cached_forward_scorer()
