@@ -22,7 +22,7 @@ from app.analysis.models import AnalysisResult
 from app.analysis.quality import assess_quality
 from app.api.deps import get_store
 from app.api.json_limits import validate_json_tree
-from app.api.store import RevisionConflict
+from app.api.store import ResultVersionSourceConflict, RevisionConflict
 from app.core.models import Peak
 
 router = APIRouter(prefix="/api", tags=["analysis"])
@@ -709,7 +709,10 @@ def restore_result_version(
             saved.result,
             note=f"restored from version {version}",
             expected_revision=expected_revision,
+            restore_from_version=version,
         )
+    except ResultVersionSourceConflict as exc:
+        raise HTTPException(409, detail=exc.to_detail()) from exc
     except RevisionConflict as exc:
         raise _conflict_response(exc) from exc
     if restored is None:

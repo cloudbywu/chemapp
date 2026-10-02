@@ -14,10 +14,11 @@ from typing import Any, Callable
 import numpy as np
 
 from app.analysis import AnalyzerRegistry
+from app.analysis.models import AnalysisResult
 from app.analysis.quality import assess_quality
 from app.analysis.utils import trapezoidal_integrate
 from app.api.deps import get_store
-from app.api.store import RevisionConflict
+from app.api.store import RevisionConflict, StoredSpectrum
 from app.integration import InferenceEngine, build_report
 
 
@@ -406,6 +407,37 @@ def _integrate_xy(x, y, start: float, end: float, technique: str) -> dict[str, f
     }
 
 
+def _save_ai_result(
+    action_name: str,
+    args: dict[str, Any],
+    stored: StoredSpectrum,
+    result: AnalysisResult,
+    note: str,
+) -> dict[str, Any]:
+    expected_revision = _expected_revision(args)
+    saved = get_store().commit_ai_action(
+        stored.id,
+        result,
+        action_name,
+        args,
+        note=note,
+        expected_revision=(
+            stored.result_revision if expected_revision is None else expected_revision
+        ),
+        expected_spectrum_revision=stored.spectrum_revision,
+    )
+    if saved is None:
+        raise AIActionError(f"Spectrum {stored.id} not found")
+    return {
+        "ok": True,
+        "spectrum_id": stored.id,
+        "version": saved.version,
+        "result_revision": saved.result_revision,
+        "ai_action_id": saved.action_id,
+        "previous_version": saved.previous_version,
+    }
+
+
 def action_update_integral_range(args: dict[str, Any]) -> dict[str, Any]:
     sid = str(args["spectrum_id"])
     index = int(args["index"])
@@ -434,16 +466,14 @@ def action_update_integral_range(args: dict[str, Any]) -> dict[str, Any]:
     result.metrics["manual_confirmed"] = True
     result.metrics["ai_modified"] = True
     result.metrics["quality"] = assess_quality(stored.spectrum, result)
-    saved = get_store().set_result_and_version(
-        sid,
+    saved = _save_ai_result(
+        "update_nmr_integral_range",
+        args,
+        stored,
         result,
         note="AI updated NMR integral range",
-        expected_revision=_expected_revision(args),
     )
-    if saved is None:
-        raise AIActionError(f"Spectrum {sid} not found")
-    updated, version = saved
-    return {"ok": True, "spectrum_id": sid, "version": version, "result_revision": updated.result_revision, "integral": result.integrals[index]}
+    return {**saved, "integral": result.integrals[index]}
 
 
 def action_delete_peak(args: dict[str, Any]) -> dict[str, Any]:
@@ -493,16 +523,14 @@ def action_delete_peak(args: dict[str, Any]) -> dict[str, Any]:
     result.metrics["manual_confirmed"] = True
     result.metrics["ai_modified"] = True
     result.metrics["quality"] = assess_quality(stored.spectrum, result)
-    saved = get_store().set_result_and_version(
-        sid,
+    saved = _save_ai_result(
+        "delete_peak",
+        args,
+        stored,
         result,
         note="AI deleted peak",
-        expected_revision=_expected_revision(args),
     )
-    if saved is None:
-        raise AIActionError(f"Spectrum {sid} not found")
-    updated, version = saved
-    return {"ok": True, "spectrum_id": sid, "version": version, "result_revision": updated.result_revision, "removed": removed}
+    return {**saved, "removed": removed}
 
 
 def action_hplc_reintegrate_peak(args: dict[str, Any]) -> dict[str, Any]:
@@ -547,16 +575,14 @@ def action_hplc_reintegrate_peak(args: dict[str, Any]) -> dict[str, Any]:
     result.metrics["manual_confirmed"] = True
     result.metrics["ai_modified"] = True
     result.metrics["quality"] = assess_quality(stored.spectrum, result)
-    saved = get_store().set_result_and_version(
-        sid,
+    saved = _save_ai_result(
+        "hplc_reintegrate_peak",
+        args,
+        stored,
         result,
         note="AI reintegrated HPLC peak",
-        expected_revision=_expected_revision(args),
     )
-    if saved is None:
-        raise AIActionError(f"Spectrum {sid} not found")
-    updated, version = saved
-    return {"ok": True, "spectrum_id": sid, "version": version, "result_revision": updated.result_revision, "peak": peaks[index], "total_area": round(total, 2)}
+    return {**saved, "peak": peaks[index], "total_area": round(total, 2)}
 
 
 def action_nmr_rebuild_multiplets(args: dict[str, Any]) -> dict[str, Any]:
@@ -571,16 +597,14 @@ def action_nmr_rebuild_multiplets(args: dict[str, Any]) -> dict[str, Any]:
     result.metrics["manual_confirmed"] = True
     result.metrics["ai_modified"] = True
     result.metrics["quality"] = assess_quality(stored.spectrum, result)
-    saved = get_store().set_result_and_version(
-        sid,
+    saved = _save_ai_result(
+        "nmr_rebuild_multiplets",
+        args,
+        stored,
         result,
         note="AI rebuilt NMR multiplets",
-        expected_revision=_expected_revision(args),
     )
-    if saved is None:
-        raise AIActionError(f"Spectrum {sid} not found")
-    updated, version = saved
-    return {"ok": True, "spectrum_id": sid, "version": version, "result_revision": updated.result_revision, "n_multiplets": len(result.multiplets), "multiplets": result.multiplets}
+    return {**saved, "n_multiplets": len(result.multiplets), "multiplets": result.multiplets}
 
 
 def action_apply_hplc_integration_events(args: dict[str, Any]) -> dict[str, Any]:
@@ -595,20 +619,15 @@ def action_apply_hplc_integration_events(args: dict[str, Any]) -> dict[str, Any]
     result.metrics["manual_confirmed"] = True
     result.metrics["ai_modified"] = True
     result.metrics["quality"] = assess_quality(stored.spectrum, result)
-    saved = get_store().set_result_and_version(
-        sid,
+    saved = _save_ai_result(
+        "apply_hplc_integration_events",
+        args,
+        stored,
         result,
         note="AI applied HPLC integration events",
-        expected_revision=_expected_revision(args),
     )
-    if saved is None:
-        raise AIActionError(f"Spectrum {sid} not found")
-    updated, version = saved
     return {
-        "ok": True,
-        "spectrum_id": sid,
-        "version": version,
-        "result_revision": updated.result_revision,
+        **saved,
         "events": events,
         "n_peaks": result.metrics.get("n_peaks"),
         "channel_peaks": result.metrics.get("channel_peaks", {}),
@@ -629,20 +648,15 @@ def action_nmr_phase_correct(args: dict[str, Any]) -> dict[str, Any]:
     result.metrics["manual_confirmed"] = True
     result.metrics["ai_modified"] = True
     result.metrics["quality"] = assess_quality(stored.spectrum, result)
-    saved = get_store().set_result_and_version(
-        sid,
+    saved = _save_ai_result(
+        "nmr_phase_correct",
+        args,
+        stored,
         result,
         note="AI applied NMR phase correction",
-        expected_revision=_expected_revision(args),
     )
-    if saved is None:
-        raise AIActionError(f"Spectrum {sid} not found")
-    updated, version = saved
     return {
-        "ok": True,
-        "spectrum_id": sid,
-        "version": version,
-        "result_revision": updated.result_revision,
+        **saved,
         "phase": {
             "zero_deg": options["phase_zero_deg"],
             "first_deg": options["phase_first_deg"],
@@ -665,20 +679,15 @@ def action_xrd_rietveld_refine(args: dict[str, Any]) -> dict[str, Any]:
     result.metrics["manual_confirmed"] = True
     result.metrics["ai_modified"] = True
     result.metrics["quality"] = assess_quality(stored.spectrum, result)
-    saved = get_store().set_result_and_version(
-        sid,
+    saved = _save_ai_result(
+        "xrd_rietveld_refine",
+        args,
+        stored,
         result,
         note="AI ran XRD Rietveld refinement",
-        expected_revision=_expected_revision(args),
     )
-    if saved is None:
-        raise AIActionError(f"Spectrum {sid} not found")
-    updated, version = saved
     return {
-        "ok": True,
-        "spectrum_id": sid,
-        "version": version,
-        "result_revision": updated.result_revision,
+        **saved,
         "rietveld_refinement": getattr(result, "rietveld_refinement", {}),
     }
 
@@ -703,38 +712,28 @@ def action_run_cross_inference(args: dict[str, Any]) -> dict[str, Any]:
 def action_undo_last_ai_action(args: dict[str, Any]) -> dict[str, Any]:
     sid = str(args["spectrum_id"])
     store = get_store()
-    if store.get(sid) is None:
+    stored = store.get(sid)
+    if stored is None:
         raise AIActionError(f"Spectrum {sid} not found")
-    last = store.get_last_ai_action(sid)
-    if last is None:
-        raise AIActionError("No AI action available to undo")
-    previous_version = int(last["previous_version"])
-    saved = store.get_result_version(sid, previous_version)
-    if saved is None:
-        raise AIActionError(f"Previous version {previous_version} not found")
-    saved.result.metrics["restored_from_version"] = previous_version
-    saved.result.metrics["ai_undo"] = {
-        "undone_action": last["action_name"],
-        "undone_action_id": last["id"],
-        "undone_new_version": last.get("new_version"),
-    }
-    restored = store.set_result_and_version(
-        sid,
-        saved.result,
-        note=f"Undo AI action {last['action_name']}",
-        expected_revision=_expected_revision(args),
-    )
+    expected_revision = _expected_revision(args)
+    try:
+        restored = store.undo_last_ai_action(
+            sid,
+            expected_revision=(
+                stored.result_revision if expected_revision is None else expected_revision
+            ),
+        )
+    except KeyError as exc:
+        raise AIActionError(str(exc.args[0])) from exc
     if restored is None:
-        raise AIActionError(f"Spectrum {sid} not found")
-    updated, restored_version = restored
-    store.mark_ai_action_undone(int(last["id"]))
+        raise AIActionError("No AI action available to undo")
     return {
         "ok": True,
         "spectrum_id": sid,
-        "undone_action": last["action_name"],
-        "restored_from_version": previous_version,
-        "version": restored_version,
-        "result_revision": updated.result_revision,
+        "undone_action": restored.action_name,
+        "restored_from_version": restored.previous_version,
+        "version": restored.version,
+        "result_revision": restored.result_revision,
     }
 
 
@@ -931,22 +930,7 @@ def execute_ai_action(
         spec = _ACTIONS.get(name)
         if spec is None:
             raise AIActionError(f"Unknown AI action: {name}")
-        store = get_store()
         if spec.destructive:
             _verify_preview_token(preview_token, name, args)
-        sid, stored, _ = _require_destructive_revision(spec, args)
-        if sid is None:
-            sid = _infer_spectrum_id(args)
-        previous_version: int | None = None
-        if spec.destructive and sid and name != "undo_last_ai_action":
-            assert stored is not None
-            if stored.result is not None:
-                previous_version = store.save_result_version(sid, stored.result, note=f"Before AI action {name}")
-        result = spec.handler(args)
-        if spec.destructive and sid and name != "undo_last_ai_action":
-            new_version = result.get("version") if isinstance(result, dict) else None
-            action_id = store.record_ai_action(sid, name, args, previous_version, int(new_version) if new_version else None)
-            if isinstance(result, dict):
-                result["ai_action_id"] = action_id
-                result["previous_version"] = previous_version
-        return result
+        _require_destructive_revision(spec, args)
+        return spec.handler(args)

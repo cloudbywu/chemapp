@@ -455,6 +455,7 @@ def test_nmr_processing_updates_spectrum_and_clears_result(tmp_path, monkeypatch
                 "crop_min_ppm": 0,
                 "crop_max_ppm": 10,
                 "expected_revision": loaded.json()["spectrum_revision"],
+                "expected_result_revision": analysis.json()["result_revision"],
             },
         )
         assert processed.status_code == 200, processed.text

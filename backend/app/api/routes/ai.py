@@ -29,7 +29,7 @@ from app.ai.prompts import SYSTEM_ROLE
 from app.analysis.helpers import analyze_if_missing
 from app.api.deps import get_store, require_admin
 from app.api.json_limits import validate_json_tree
-from app.api.store import RevisionConflict
+from app.api.store import AIUndoConflict, ResultVersionSourceConflict, RevisionConflict
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 logger = logging.getLogger("chemapp.ai")
@@ -122,6 +122,8 @@ def ai_execute_action(payload: AIActionRequest, request: Request):
                 preview_token=payload.preview_token,
             ),
         }
+    except (AIUndoConflict, ResultVersionSourceConflict) as e:
+        raise HTTPException(409, detail=e.to_detail()) from e
     except RevisionConflict as e:
         raise HTTPException(
             409,

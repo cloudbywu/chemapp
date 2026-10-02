@@ -1,5 +1,7 @@
 """Test PersistentStore — SQLite persistence."""
 import tempfile
+import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
@@ -48,6 +50,27 @@ def test_list_all(store, sample_spectrum):
     store.add(sample_spectrum)
     items = store.list_all()
     assert len(items) == 2
+
+
+def test_add_many_commits_every_spectrum(store, sample_spectrum):
+    stored = store.add_many([sample_spectrum, sample_spectrum])
+    assert len(stored) == 2
+    assert stored[0].id != stored[1].id
+    assert all(store.get(item.id) is not None for item in stored)
+
+
+def test_add_many_rejects_nonfinite_payload_without_partial_write(store, sample_spectrum):
+    bad = Spectrum(technique=Technique.NMR, x_data=np.array([0.0]), y_data=np.array([np.nan]))
+    with pytest.raises(ValueError):
+        store.add_many([sample_spectrum, bad])
+    assert store.count() == 0
+
+
+def test_add_many_rolls_back_when_later_insert_fails(store, sample_spectrum, monkeypatch):
+    monkeypatch.setattr("app.api.store.uuid.uuid4", lambda: SimpleNamespace(hex="a" * 32))
+    with pytest.raises(sqlite3.IntegrityError):
+        store.add_many([sample_spectrum, sample_spectrum])
+    assert store.count() == 0
 
 
 def test_remove(store, sample_spectrum):

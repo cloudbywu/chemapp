@@ -22,7 +22,7 @@ from app.analysis.nmr_processing import (
     spectrum_quality_metrics,
 )
 from app.api.deps import get_store
-from app.api.store import RevisionConflict
+from app.api.store import RevisionConflict, SpectrumResultRevisionConflict, StoredSpectrum
 from app.core.models import Technique
 
 router = APIRouter(prefix="/api/nmr", tags=["nmr"])
@@ -77,6 +77,7 @@ class NMRProcessRequest(BaseModel):
     )
     invert: bool = False
     expected_revision: int | None = Field(default=None, ge=1)
+    expected_result_revision: int | None = Field(default=None, ge=0, strict=True)
 
     @model_validator(mode="after")
     def paired_ranges_and_references(self):
@@ -113,6 +114,7 @@ class NMRProcessRequest(BaseModel):
 class NMRResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int | None = Field(default=None, ge=1)
+    expected_result_revision: int | None = Field(default=None, ge=0, strict=True)
 
 
 def _finite_float(
@@ -199,6 +201,16 @@ def _expected_revision(
 
 
 def _revision_conflict(exc: RevisionConflict) -> HTTPException:
+    if isinstance(exc, SpectrumResultRevisionConflict):
+        return HTTPException(
+            409,
+            detail={
+                "code": "revision_conflict",
+                "message": "The analysis result changed while processing; reload before replacing it.",
+                "current_revision": exc.current_revision,
+                "current_result_revision": exc.current_result_revision,
+            },
+        )
     return HTTPException(
         409,
         detail={
@@ -207,6 +219,32 @@ def _revision_conflict(exc: RevisionConflict) -> HTTPException:
             "current_revision": exc.current_revision,
         },
     )
+
+
+def _expected_result_revision(payload: dict[str, Any], stored: StoredSpectrum) -> int:
+    """Bind processing to the result the client actually reviewed.
+
+    A legacy request without a result revision is safe only when there is no
+    current result to discard. The transaction still guards that empty state
+    against a result saved while processing is running.
+    """
+    expected = payload.get("expected_result_revision")
+    if expected is None:
+        if stored.result is not None:
+            raise HTTPException(
+                428,
+                detail={
+                    "code": "expected_result_revision_required",
+                    "message": "Reload the analysis result before previewing or applying NMR processing; expected_result_revision is required.",
+                    "current_result_revision": stored.result_revision,
+                },
+            )
+        return stored.result_revision
+    if expected != stored.result_revision:
+        raise _revision_conflict(SpectrumResultRevisionConflict(
+            stored.spectrum_revision, stored.result_revision,
+        ))
+    return int(expected)
 
 
 def _next_revision(parameters: dict[str, Any]) -> int:
@@ -344,6 +382,7 @@ def process_nmr_spectrum(sid: SpectrumId, request: NMRProcessRequest):
         and expected_revision != stored.spectrum_revision
     ):
         raise _revision_conflict(RevisionConflict(stored.spectrum_revision))
+    expected_result_revision = _expected_result_revision(payload, stored)
 
     manual_phase_requested = (
         payload.get("phase_zero_deg") not in (None, "")
@@ -813,6 +852,7 @@ def process_nmr_spectrum(sid: SpectrumId, request: NMRProcessRequest):
                 spectrum,
                 clear_result=True,
                 expected_revision=expected_revision,
+                expected_result_revision=expected_result_revision,
             )
         except RevisionConflict as exc:
             raise _revision_conflict(exc)
@@ -855,6 +895,7 @@ def reset_nmr_processing(
     expected_revision = _expected_revision(payload, required=True)
     if expected_revision != stored.spectrum_revision:
         raise _revision_conflict(RevisionConflict(stored.spectrum_revision))
+    expected_result_revision = _expected_result_revision(payload, stored)
 
     spectrum = stored.spectrum
     source, warnings = _processing_source(spectrum)
@@ -891,6 +932,7 @@ def reset_nmr_processing(
             spectrum,
             clear_result=True,
             expected_revision=expected_revision,
+            expected_result_revision=expected_result_revision,
         )
     except RevisionConflict as exc:
         raise _revision_conflict(exc)

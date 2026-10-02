@@ -28,12 +28,78 @@ class ResultVersion:
     result: AnalysisResult
     note: str = ""
     created_at: str = ""
+    spectrum_revision: int | None = None
+
+
+@dataclass(frozen=True)
+class AIActionCommit:
+    action_id: int
+    action_name: str
+    previous_version: int | None
+    version: int
+    result_revision: int
 
 
 class RevisionConflict(ValueError):
     def __init__(self, current_revision: int):
         self.current_revision = int(current_revision)
         super().__init__(f"Revision conflict; current revision is {self.current_revision}")
+
+
+class SpectrumResultRevisionConflict(RevisionConflict):
+    """Processing would clear a result saved after its initial read."""
+
+    def __init__(self, spectrum_revision: int, result_revision: int):
+        self.current_result_revision = int(result_revision)
+        super().__init__(spectrum_revision)
+
+
+class ResultVersionSourceConflict(ValueError):
+    """A historical result cannot be attached to the current spectrum."""
+
+    def __init__(self, source_revision: int | None, current_revision: int):
+        self.source_spectrum_revision = source_revision
+        self.current_spectrum_revision = int(current_revision)
+        message = (
+            "This historical result has no verifiable source spectrum revision; "
+            "it remains in history but cannot be restored."
+            if source_revision is None
+            else "This result belongs to a different spectrum revision; "
+            "reanalyze the current spectrum instead of restoring it."
+        )
+        super().__init__(message)
+
+    def to_detail(self) -> dict[str, Any]:
+        return {
+            "code": "result_source_mismatch",
+            "message": str(self),
+            "source_spectrum_revision": self.source_spectrum_revision,
+            "current_spectrum_revision": self.current_spectrum_revision,
+        }
+
+
+class AIUndoConflict(ValueError):
+    """Undo cannot prove it will preserve later non-AI result edits."""
+
+    def __init__(self, reason: str, current_revision: int):
+        self.reason = reason
+        self.current_revision = int(current_revision)
+        message = (
+            "This AI action has no verifiable edit history. Undo is blocked to "
+            "protect the current result; its saved versions remain available."
+            if reason == "unverifiable_history"
+            else "The result was manually saved, restored, or reanalyzed after this "
+            "AI action. Undo is blocked to preserve those later edits."
+        )
+        super().__init__(message)
+
+    def to_detail(self) -> dict[str, Any]:
+        return {
+            "code": "ai_undo_blocked",
+            "reason": self.reason,
+            "message": str(self),
+            "current_revision": self.current_revision,
+        }
 
 
 class SpectrumDeleteConflict(ValueError):
@@ -64,13 +130,9 @@ class PersistentStore:
         db_file = Path(db_path)
         db_file.parent.mkdir(parents=True, exist_ok=True)
         self._db_path = str(db_file)
-        # Design tradeoff: one process-wide mutex serializes every read and
-        # write, including multi-step check-then-act sequences such as
-        # optimistic revision updates and cascading deletes. SQLite WAL alone
-        # would allow concurrent readers, but the single lock keeps
-        # cross-connection invariants obviously correct for a single-user lab
-        # API where throughput is not critical. Paginating list_all is
-        # intentionally deferred to a later batch.
+        # This mutex serializes calls on one store instance. Transactions using
+        # BEGIN IMMEDIATE protect read/check/write sequences across independent
+        # store instances and server workers; the Python lock cannot do that.
         self._lock = threading.Lock()
         self._init_db()
 
@@ -84,6 +146,8 @@ class PersistentStore:
         with self._lock, self._connect() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
+            # Serialize additive migrations across independently starting workers.
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS spectra (
                     id TEXT PRIMARY KEY,
@@ -94,6 +158,7 @@ class PersistentStore:
                     result_json TEXT,
                     spectrum_revision INTEGER NOT NULL DEFAULT 1,
                     result_revision INTEGER NOT NULL DEFAULT 0,
+                    non_ai_revision INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT DEFAULT (datetime('now'))
                 )
             """)
@@ -106,6 +171,12 @@ class PersistentStore:
                 conn.execute(
                     "ALTER TABLE spectra ADD COLUMN result_revision INTEGER NOT NULL DEFAULT 0"
                 )
+            if "non_ai_revision" not in columns:
+                # This is an opaque edit generation, not reconstructed history.
+                # Old AI actions retain NULL below and cannot cross this boundary.
+                conn.execute(
+                    "ALTER TABLE spectra ADD COLUMN non_ai_revision INTEGER NOT NULL DEFAULT 0"
+                )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_technique ON spectra(technique)")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS result_versions (
@@ -113,12 +184,20 @@ class PersistentStore:
                     spectrum_id TEXT NOT NULL,
                     version INTEGER NOT NULL,
                     result_json TEXT NOT NULL,
+                    spectrum_revision INTEGER,
                     note TEXT DEFAULT '',
                     created_at TEXT DEFAULT (datetime('now')),
                     UNIQUE(spectrum_id, version),
                     FOREIGN KEY(spectrum_id) REFERENCES spectra(id) ON DELETE CASCADE
                 )
             """)
+            version_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(result_versions)").fetchall()
+            }
+            if "spectrum_revision" not in version_columns:
+                # Historical rows cannot be reliably linked to their source:
+                # retain them with NULL rather than inventing a provenance.
+                conn.execute("ALTER TABLE result_versions ADD COLUMN spectrum_revision INTEGER")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_result_versions_sid ON result_versions(spectrum_id)")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS ai_action_history (
@@ -128,11 +207,18 @@ class PersistentStore:
                     args_json TEXT NOT NULL,
                     previous_version INTEGER,
                     new_version INTEGER,
+                    non_ai_revision INTEGER,
                     undone INTEGER DEFAULT 0,
                     created_at TEXT DEFAULT (datetime('now')),
                     FOREIGN KEY(spectrum_id) REFERENCES spectra(id) ON DELETE CASCADE
                 )
             """)
+            action_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(ai_action_history)").fetchall()
+            }
+            if "non_ai_revision" not in action_columns:
+                # Never guess whether manual edits followed a legacy action.
+                conn.execute("ALTER TABLE ai_action_history ADD COLUMN non_ai_revision INTEGER")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_action_history_sid ON ai_action_history(spectrum_id)")
             # Existing databases predate the foreign keys above. The trigger gives
             # those installations the same cascade behaviour without rebuilding
@@ -148,18 +234,28 @@ class PersistentStore:
             conn.commit()
 
     def add(self, spectrum: Spectrum) -> StoredSpectrum:
-        sid = uuid.uuid4().hex[:12]
-        spec_dict = spectrum.to_dict(include_internal=True)
-        name = Path(spectrum.source_file).name if spectrum.source_file else ""
-        stored = StoredSpectrum(id=sid, spectrum=spectrum)
-        payload = _json_dumps(spec_dict)
+        return self.add_many([spectrum])[0]
+
+    def add_many(self, spectra: list[Spectrum]) -> list[StoredSpectrum]:
+        """Persist one logical upload atomically, including serialization failures."""
+
+        stored_items: list[StoredSpectrum] = []
+        rows = []
+        for spectrum in spectra:
+            sid = uuid.uuid4().hex[:12]
+            payload = _json_dumps(spectrum.to_dict(include_internal=True))
+            name = Path(spectrum.source_file).name if spectrum.source_file else ""
+            rows.append((sid, spectrum.technique.value, name, spectrum.num_points, payload))
+            stored_items.append(StoredSpectrum(id=sid, spectrum=spectrum))
+        if not rows:
+            return []
         with self._lock, self._connect() as conn:
-            conn.execute(
+            conn.executemany(
                 "INSERT INTO spectra (id, technique, name, points, spectrum_json) VALUES (?,?,?,?,?)",
-                (sid, spectrum.technique.value, name, spectrum.num_points, payload),
+                rows,
             )
             conn.commit()
-        return stored
+        return stored_items
 
     def get(self, sid: str) -> StoredSpectrum | None:
         with self._lock, self._connect() as conn:
@@ -314,7 +410,8 @@ class PersistentStore:
                 raise RevisionConflict(current_revision)
             new_revision = current_revision + 1
             conn.execute(
-                "UPDATE spectra SET result_json=?, result_revision=? WHERE id=?",
+                """UPDATE spectra SET result_json=?, result_revision=?,
+                   non_ai_revision=non_ai_revision+1 WHERE id=?""",
                 (result_json, new_revision, sid),
             )
             conn.commit()
@@ -326,21 +423,29 @@ class PersistentStore:
             result_revision=new_revision,
         )
 
-    def save_result_version(self, sid: str, result: AnalysisResult, note: str = "") -> int:
+    def save_result_version(
+        self, sid: str, result: AnalysisResult, note: str = "", *, expected_revision: int
+    ) -> int:
         result_json = _json_dumps(result.to_dict())
         with self._lock, self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            exists = conn.execute("SELECT 1 FROM spectra WHERE id=?", (sid,)).fetchone()
+            exists = conn.execute(
+                "SELECT spectrum_revision, result_revision FROM spectra WHERE id=?", (sid,)
+            ).fetchone()
             if exists is None:
                 raise KeyError(f"Spectrum {sid} not found")
+            if int(expected_revision) != int(exists[1] or 0):
+                raise RevisionConflict(int(exists[1] or 0))
             row = conn.execute(
                 "SELECT COALESCE(MAX(version), 0) FROM result_versions WHERE spectrum_id=?",
                 (sid,),
             ).fetchone()
             version = int(row[0] or 0) + 1
             conn.execute(
-                "INSERT INTO result_versions (spectrum_id, version, result_json, note) VALUES (?,?,?,?)",
-                (sid, version, result_json, note),
+                """INSERT INTO result_versions
+                   (spectrum_id, version, result_json, note, spectrum_revision)
+                   VALUES (?,?,?,?,?)""",
+                (sid, version, result_json, note, int(exists[0] or 1)),
             )
             conn.commit()
             return version
@@ -353,6 +458,7 @@ class PersistentStore:
         *,
         version_metric: str | None = None,
         expected_revision: int | None = None,
+        restore_from_version: int | None = None,
     ) -> tuple[StoredSpectrum, int] | None:
         """Atomically update the current result and append its immutable version."""
         with self._lock, self._connect() as conn:
@@ -371,6 +477,16 @@ class PersistentStore:
             if expected_revision is not None and int(expected_revision) != current_revision:
                 conn.rollback()
                 raise RevisionConflict(current_revision)
+            if restore_from_version is not None:
+                source = conn.execute(
+                    "SELECT spectrum_revision FROM result_versions WHERE spectrum_id=? AND version=?",
+                    (sid, restore_from_version),
+                ).fetchone()
+                if source is None:
+                    raise KeyError(f"Result version {restore_from_version} not found")
+                source_revision = int(source[0]) if source[0] is not None else None
+                if source_revision != int(existing[1] or 1):
+                    raise ResultVersionSourceConflict(source_revision, int(existing[1] or 1))
             new_result_revision = current_revision + 1
             row = conn.execute(
                 "SELECT COALESCE(MAX(version), 0) FROM result_versions WHERE spectrum_id=?",
@@ -381,12 +497,15 @@ class PersistentStore:
                 result.metrics[version_metric] = version
             result_json = _json_dumps(result.to_dict())
             conn.execute(
-                "UPDATE spectra SET result_json=?, result_revision=? WHERE id=?",
+                """UPDATE spectra SET result_json=?, result_revision=?,
+                   non_ai_revision=non_ai_revision+1 WHERE id=?""",
                 (result_json, new_result_revision, sid),
             )
             conn.execute(
-                "INSERT INTO result_versions (spectrum_id, version, result_json, note) VALUES (?,?,?,?)",
-                (sid, version, result_json, note),
+                """INSERT INTO result_versions
+                   (spectrum_id, version, result_json, note, spectrum_revision)
+                   VALUES (?,?,?,?,?)""",
+                (sid, version, result_json, note, int(existing[1] or 1)),
             )
             conn.commit()
         spectrum = Spectrum.from_dict(json.loads(existing[0]))
@@ -405,20 +524,23 @@ class PersistentStore:
         with self._lock, self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT version, result_json, note, created_at
-                FROM result_versions
-                WHERE spectrum_id=?
+                SELECT v.version, v.result_json, v.note, v.created_at,
+                       v.spectrum_revision, s.spectrum_revision
+                FROM result_versions v JOIN spectra s ON s.id=v.spectrum_id
+                WHERE v.spectrum_id=?
                 ORDER BY version DESC
                 """,
                 (sid,),
             ).fetchall()
         versions = []
-        for version, result_json, note, created_at in rows:
+        for version, result_json, note, created_at, source_revision, current_revision in rows:
             raw = json.loads(result_json)
             versions.append({
                 "version": int(version),
                 "note": note or "",
                 "created_at": created_at,
+                "spectrum_revision": int(source_revision) if source_revision is not None else None,
+                "restorable": source_revision is not None and source_revision == current_revision,
                 "n_peaks": len(raw.get("peaks", [])),
                 "manual_confirmed": bool(raw.get("metrics", {}).get("manual_confirmed")),
                 "summary": raw.get("summary", ""),
@@ -429,7 +551,7 @@ class PersistentStore:
         with self._lock, self._connect() as conn:
             row = conn.execute(
                 """
-                SELECT version, result_json, note, created_at
+                SELECT version, result_json, note, created_at, spectrum_revision
                 FROM result_versions
                 WHERE spectrum_id=? AND version=?
                 """,
@@ -442,7 +564,163 @@ class PersistentStore:
             result=_deserialize_result(json.loads(row[1])),
             note=row[2] or "",
             created_at=row[3] or "",
+            spectrum_revision=int(row[4]) if row[4] is not None else None,
         )
+
+    def commit_ai_action(
+        self,
+        sid: str,
+        result: AnalysisResult,
+        action_name: str,
+        args: dict[str, Any],
+        note: str = "",
+        *,
+        expected_revision: int,
+        expected_spectrum_revision: int,
+    ) -> AIActionCommit | None:
+        """Commit a computed result, its preimage, and audit row together.
+
+        Scientific computation and serialization happen before taking a write
+        lock. The preimage is copied from the checked persisted state, never
+        from a caller's mutable result or an earlier, potentially stale read.
+        """
+        result_json = _json_dumps(result.to_dict())
+        args_json = _json_dumps(args)
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                """SELECT result_json, spectrum_revision, result_revision, non_ai_revision
+                   FROM spectra WHERE id=?""",
+                (sid,),
+            ).fetchone()
+            if existing is None:
+                return None
+            current_revision = int(existing[2] or 0)
+            if int(expected_revision) != current_revision:
+                raise RevisionConflict(current_revision)
+            source_revision = int(existing[1] or 1)
+            if int(expected_spectrum_revision) != source_revision:
+                raise ResultVersionSourceConflict(expected_spectrum_revision, source_revision)
+            latest = conn.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM result_versions WHERE spectrum_id=?",
+                (sid,),
+            ).fetchone()[0]
+            version = int(latest or 0) + 1
+            previous_version = None
+            if existing[0] is not None:
+                previous_version = version
+                conn.execute(
+                    """INSERT INTO result_versions
+                       (spectrum_id, version, result_json, note, spectrum_revision)
+                       VALUES (?,?,?,?,?)""",
+                    (sid, previous_version, existing[0], f"Before AI action {action_name}", source_revision),
+                )
+                version += 1
+            new_revision = current_revision + 1
+            conn.execute(
+                "UPDATE spectra SET result_json=?, result_revision=? WHERE id=?",
+                (result_json, new_revision, sid),
+            )
+            conn.execute(
+                """INSERT INTO result_versions
+                   (spectrum_id, version, result_json, note, spectrum_revision)
+                   VALUES (?,?,?,?,?)""",
+                (sid, version, result_json, note, source_revision),
+            )
+            cursor = conn.execute(
+                """INSERT INTO ai_action_history
+                   (spectrum_id, action_name, args_json, previous_version, new_version, non_ai_revision)
+                   VALUES (?,?,?,?,?,?)""",
+                (sid, action_name, args_json, previous_version, version, int(existing[3])),
+            )
+            committed = AIActionCommit(
+                action_id=int(cursor.lastrowid),
+                action_name=action_name,
+                previous_version=previous_version,
+                version=version,
+                result_revision=new_revision,
+            )
+            conn.commit()
+        return committed
+
+    def undo_last_ai_action(
+        self, sid: str, *, expected_revision: int
+    ) -> AIActionCommit | None:
+        """Restore and mark the latest eligible action undone in one transaction.
+
+        Revision, source, and non-AI edit checks run under the write lock. Only
+        AI commits and undo keep the edit generation unchanged, so sequential
+        undo remains possible without crossing a manual save, restore, or
+        reanalysis. Legacy actions stay visible but lack verified provenance.
+        """
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                "SELECT spectrum_revision, result_revision, non_ai_revision FROM spectra WHERE id=?",
+                (sid,),
+            ).fetchone()
+            if existing is None:
+                raise KeyError(f"Spectrum {sid} not found")
+            current_revision = int(existing[1] or 0)
+            if int(expected_revision) != current_revision:
+                raise RevisionConflict(current_revision)
+            last = conn.execute(
+                """SELECT id, action_name, previous_version, new_version, non_ai_revision
+                   FROM ai_action_history
+                   WHERE spectrum_id=? AND undone=0 AND previous_version IS NOT NULL
+                   ORDER BY id DESC LIMIT 1""",
+                (sid,),
+            ).fetchone()
+            if last is None:
+                return None
+            action_id, action_name, previous_version, new_version, non_ai_revision = last
+            saved = conn.execute(
+                "SELECT result_json, spectrum_revision FROM result_versions WHERE spectrum_id=? AND version=?",
+                (sid, previous_version),
+            ).fetchone()
+            if saved is None:
+                raise KeyError(f"Previous version {previous_version} not found")
+            source_revision = int(saved[1]) if saved[1] is not None else None
+            if source_revision != int(existing[0] or 1):
+                raise ResultVersionSourceConflict(source_revision, int(existing[0] or 1))
+            if non_ai_revision is None:
+                raise AIUndoConflict("unverifiable_history", current_revision)
+            if int(non_ai_revision) != int(existing[2]):
+                raise AIUndoConflict("later_result_edit", current_revision)
+            result = _deserialize_result(json.loads(saved[0]))
+            result.metrics["restored_from_version"] = int(previous_version)
+            result.metrics["ai_undo"] = {
+                "undone_action": action_name,
+                "undone_action_id": int(action_id),
+                "undone_new_version": int(new_version) if new_version is not None else None,
+            }
+            result_json = _json_dumps(result.to_dict())
+            latest = conn.execute(
+                "SELECT COALESCE(MAX(version), 0) FROM result_versions WHERE spectrum_id=?",
+                (sid,),
+            ).fetchone()[0]
+            version = int(latest or 0) + 1
+            new_revision = current_revision + 1
+            conn.execute(
+                "UPDATE spectra SET result_json=?, result_revision=? WHERE id=?",
+                (result_json, new_revision, sid),
+            )
+            conn.execute(
+                """INSERT INTO result_versions
+                   (spectrum_id, version, result_json, note, spectrum_revision)
+                   VALUES (?,?,?,?,?)""",
+                (sid, version, result_json, f"Undo AI action {action_name}", source_revision),
+            )
+            conn.execute("UPDATE ai_action_history SET undone=1 WHERE id=?", (action_id,))
+            committed = AIActionCommit(
+                action_id=int(action_id),
+                action_name=action_name,
+                previous_version=int(previous_version),
+                version=version,
+                result_revision=new_revision,
+            )
+            conn.commit()
+        return committed
 
     def record_ai_action(
         self,
@@ -509,6 +787,7 @@ class PersistentStore:
         clear_result: bool = True,
         *,
         expected_revision: int | None = None,
+        expected_result_revision: int | None = None,
     ) -> StoredSpectrum | None:
         name = Path(spectrum.source_file).name if spectrum.source_file else ""
         spectrum_json = _json_dumps(spectrum.to_dict(include_internal=True))
@@ -528,6 +807,11 @@ class PersistentStore:
             if expected_revision is not None and int(expected_revision) != current_revision:
                 conn.rollback()
                 raise RevisionConflict(current_revision)
+            if (
+                expected_result_revision is not None
+                and int(expected_result_revision) != int(row[2] or 0)
+            ):
+                raise SpectrumResultRevisionConflict(current_revision, int(row[2] or 0))
             new_spectrum_revision = current_revision + 1
             new_result_revision = int(row[2] or 0) + (1 if clear_result else 0)
             conn.execute(
@@ -535,6 +819,7 @@ class PersistentStore:
                 UPDATE spectra
                 SET technique=?, name=?, points=?, spectrum_json=?,
                     spectrum_revision=?, result_revision=?,
+                    non_ai_revision=non_ai_revision+1,
                     result_json=CASE WHEN ? THEN NULL ELSE result_json END
                 WHERE id=?
                 """,
