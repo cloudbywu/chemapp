@@ -58,3 +58,7 @@ run_dev.py
 
 # Nested git
 backend/.git/
+
+# Electron build/runtime staging (never commit user databases or bundled runtimes)
+desktop/build/
+desktop/release/

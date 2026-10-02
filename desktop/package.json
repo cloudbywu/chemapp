@@ -1,0 +1,34 @@
+{
+  "name": "chemapp-desktop",
+  "productName": "ChemApp",
+  "version": "0.2.0",
+  "description": "Local-first analytical chemistry desktop application",
+  "author": "ChemApp contributors",
+  "license": "MIT",
+  "private": true,
+  "main": "main.cjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "node scripts/build-ui.cjs && electron .",
+    "start:built": "electron .",
+    "build:ui": "node scripts/build-ui.cjs",
+    "test": "node --test test/*.test.cjs",
+    "check": "node --check main.cjs && node --check backend.cjs && node --check security.cjs && node --check window-state.cjs && node --check capture-workspace.cjs && node --check scripts/build-ui.cjs && node --check scripts/verify-runtime.cjs && node --check scripts/smoke-package.cjs && npm test",
+    "stage:win": "python scripts/stage-runtime.py --platform win32",
+    "pack:win": "npm run build:ui && node scripts/verify-runtime.cjs --platform win32 && electron-builder --win --x64 --dir --publish never",
+    "dist:win": "npm run build:ui && node scripts/verify-runtime.cjs --platform win32 && electron-builder --win nsis --x64 --publish never",
+    "install:electron": "install-electron",
+    "test:integration": "node scripts/smoke-backend.cjs",
+    "stage:linux": "python3 scripts/stage-runtime.py --platform linux",
+    "pack:linux": "npm run build:ui && node scripts/verify-runtime.cjs --platform linux && electron-builder --linux --x64 --dir --publish never",
+    "dist:linux": "npm run build:ui && node scripts/verify-runtime.cjs --platform linux && electron-builder --linux tar.gz --x64 --publish never",
+    "test:package": "node scripts/smoke-package.cjs",
+    "test:staging": "python3 -m unittest discover -s test -p \"test_staging.py\""
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  }
+}

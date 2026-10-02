@@ -1,0 +1,36 @@
+appId: org.chemapp.desktop
+productName: ChemApp
+asar: true
+directories:
+  output: release
+files:
+  - main.cjs
+  - backend.cjs
+  - security.cjs
+  - window-state.cjs
+  - capture-workspace.cjs
+  - loading.html
+  - package.json
+extraResources:
+  - from: build/runtime
+    to: runtime
+  - from: ../frontend/dist
+    to: frontend
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ChemApp-${version}-windows-${arch}-setup.${ext}
+linux:
+  target:
+    - target: tar.gz
+      arch: [x64]
+  executableName: chemapp
+  category: Science
+  artifactName: ChemApp-${version}-linux-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+publish: null

@@ -139,3 +139,24 @@ jobs:
         # - PYSEC-2026-3447 (setuptools 81.0.0): fix version 83.0.0 is not yet
         #   published on PyPI; setuptools is a torch build-support dependency.
         run: uvx pip-audit -r /tmp/reqs.txt --progress-spinner off --strict --ignore-vuln PYSEC-2025-194 --ignore-vuln PYSEC-2026-3447
+
+  desktop-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Select fixture interpreter
+        run: echo "CHEMAPP_DESKTOP_TEST_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
+      - run: npm ci
+        working-directory: desktop
+      - run: npm audit --audit-level=high
+        working-directory: desktop
+      - run: npm run check
+        working-directory: desktop
